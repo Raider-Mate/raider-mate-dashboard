@@ -42,6 +42,14 @@ export class ServiceError extends Error {
     return this.status === 402;
   }
 
+  /**
+   * The thing was already decided by somebody else. Two raid leads working the same
+   * queue is normal, so this is a race rather than a mistake and reads as one.
+   */
+  get isConflict(): boolean {
+    return this.status === 409;
+  }
+
   /** The shared key was rejected. A dashboard misconfiguration, never the raider. */
   get isUnauthorized(): boolean {
     return this.status === 401;

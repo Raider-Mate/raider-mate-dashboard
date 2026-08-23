@@ -136,6 +136,13 @@ bench tray come from the comp. Late, Tentative, Declined, and Absent come from
 `signups.status`, which is what the raider self-reported. Do not conflate them: a
 raider can be `CONFIRMED` and benched at the same time, and that is the normal case.
 
+The comp's `unseated` list is where the two meet, and it is still the comp's answer
+rather than a third source. A board is the snapshot the last lock took and signups carry
+on afterwards, so somebody can be `CONFIRMED` and on no board at all. The service says
+who, and stamps each one with the reason to show. Working that out here by diffing the
+signup list against the slots would be this repo deciding who holds a seat, which is
+exactly what rule 1 forbids.
+
 ## 5. Template
 
 Scaffolded from **accessible-astro-dashboard** by Mark Teekman, MIT licensed.
@@ -206,7 +213,6 @@ ids on every request, so the staleness window is entirely on this side.
 
 ## 7. Still outstanding
 
-- Late requests are listed for a raid lead but not yet approved or rejected from here.
 - CSRF beyond form posts. Two things cover what exists today: the session cookie is
   `SameSite=Lax`, and Astro's `security.checkOrigin` (on by default) answers 403 to a
   form `POST` whose `Origin` is not this site. Verified, not assumed. That check keys

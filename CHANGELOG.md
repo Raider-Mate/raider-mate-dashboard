@@ -12,6 +12,35 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-23
+
+### Fixed
+
+- **A raider who signs up after the comp is locked is no longer missing from it.** The
+  comp panel is drawn from the board, and the board is the snapshot the last lock took,
+  so anyone who signed up afterwards was in the signups table and nowhere on the comp,
+  with nothing saying the two disagreed. They now sit under the bench in a "Not on the
+  board" group, each with the service's reason, and a line saying whether a rebuild
+  would seat them or whether the board is hand-built and staying as it is. Characters
+  with no roles set turn up there too, since the assigner cannot place them at all.
+
+- **The advisories panel on a comp is no longer always empty.** The service worked its
+  advisories out during a lock and never stored them, so the comp this page reads back
+  answered with none and the panel had nothing to draw, on every comp, always. They now
+  arrive on every read, hand-built comps included: how the raid lead's own template
+  departs from the suggestion, and every role the board leaves short. Information before
+  pulling, as it always was, and never a reason a save is refused.
+- **An advisory no longer names its role twice.** The role is the colour of the dot; the
+  message already opens with it.
+- **A signup filed after the deadline can now actually be answered.** Signing up once
+  signups have closed files a request for a raid lead, and Discord tells them it is
+  waiting in the dashboard. The dashboard listed it and offered no way to answer it, so
+  the request sat pending and the raider never made it onto the sheet. Pending requests
+  now carry Approve and Reject. Approving writes the signup the raider asked for and
+  redraws the message in Discord; rejecting closes the request and changes nothing. Both
+  appear only on a request still waiting, and only for a raid lead, so two raid leads
+  working the same queue get told the other one answered first rather than a failure.
+
 ## [0.6.0] - 2026-08-22
 
 ### Changed

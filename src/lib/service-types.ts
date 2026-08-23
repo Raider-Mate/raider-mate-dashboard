@@ -126,10 +126,32 @@ export interface Advisory {
   message: string;
 }
 
+/**
+ * One raider on the event holding no seat on this board.
+ *
+ * `reason` is the service's own sentence, rendered as it arrives, the same contract
+ * `Assignment.reason` has. Two kinds of raider land here, the late arrival and the
+ * character with no roles set, and which one this is was never decided in this repo.
+ */
+export interface Unseated {
+  character_id: string;
+  character?: CharacterSummary;
+  status: SignupStatus;
+  signed_up_at: string;
+  reason: string;
+}
+
 export interface Board extends Linked {
   name: string;
   mode: CompMode;
   slots: Assignment[];
+  /**
+   * Who the slots leave out. A board is the snapshot the last lock took and signups
+   * carry on afterwards, so this is the service's answer to who arrived since. Absent
+   * when everybody who could be placed was. Never computed here: diffing the signup
+   * list against the slots would be a second definition of who holds a seat.
+   */
+  unseated?: Unseated[];
   advisories?: Advisory[];
 }
 

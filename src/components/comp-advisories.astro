@@ -15,6 +15,9 @@ const { advisories } = Astro.props;
    * only ever information: "HEALER: 3, suggestion for 20 raiders is 4" is what a raid
    * lead wants to know before pulling, and it is never an error, never a correction, and
    * never a reason to stop a save.
+   *
+   * The message names its own subject, so `role` is only the colour of the dot. Printing
+   * it as text too said "HEALER: HEALER: 1 seated, the comp asks for 4".
    */
   advisories && advisories.length > 0 && (
     <ul class="advisories">
@@ -27,7 +30,6 @@ const { advisories } = Astro.props;
               aria-hidden="true"
             />
           )}
-          {advisory.role ? `${advisory.role}: ` : ''}
           {advisory.message}
         </li>
       ))}

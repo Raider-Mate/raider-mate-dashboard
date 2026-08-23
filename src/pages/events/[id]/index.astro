@@ -51,12 +51,15 @@ const NOTICES: Record<string, string> = {
   invalid: 'Check the fields. Something in there is not a raid.',
   backwards: 'Signups would close after the raid starts. Check the two times.',
   saved: 'Saved. The signup sheet in Discord follows.',
+  approved: 'Approved. They are on the sheet.',
+  rejected: 'Rejected. Nothing on the sheet changed.',
+  decided: 'Someone answered that one already.',
 };
 const code = Astro.url.searchParams.get('notice') ?? '';
 const notice = NOTICES[code];
-// Every other code above is a refusal. This one is the write going through, and it wears
-// the danger colour otherwise.
-const noticeIsGood = code === 'saved';
+// The rest are refusals and wear the danger colour. These are writes that went through,
+// a rejection included: answering a request is the queue working, not a failure.
+const noticeIsGood = code === 'saved' || code === 'approved' || code === 'rejected';
 
 let event: Event | null = null;
 let failure: string | null = null;
@@ -535,6 +538,35 @@ function templateSize(field: string): number | '' {
                         </ul>
                       </div>
                     )}
+
+                    {/* Who the slots leave out. The board is the snapshot the last lock
+                        took and signups carry on afterwards, so without this a raider who
+                        arrived since is in the table below and on no board, with nothing
+                        connecting the two. The list and each reason are the service's
+                        answer; only the sentence under the heading is chosen here, and it
+                        turns on the mode because a rebuild seats them on one and is
+                        refused on the other. */}
+                    {board.unseated && board.unseated.length > 0 && (
+                      <div class="unseated">
+                        <h4>
+                          Not on the board
+                          <span class="role__count">{board.unseated.length}</span>
+                        </h4>
+                        <p class="unseated__why">
+                          {board.mode === 'AUTO'
+                            ? 'The board was built before they signed up. A rebuild seats them.'
+                            : 'This board is hand-built, so the assigner leaves it alone.'}
+                        </p>
+                        <ul>
+                          {board.unseated.map((entry) => (
+                            <li>
+                              {entry.character?.name ?? entry.character_id}
+                              <span class="reason">{entry.reason}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -717,6 +749,33 @@ function templateSize(field: string): number | '' {
                         )}
                       </p>
                       {request.note && <p class="note">{request.note}</p>}
+
+                      {/* The bot's notice says this is waiting in the dashboard, so the
+                          dashboard has to be able to answer it. Both links arrive only on
+                          a pending request, and only for a raid lead, so a decided one
+                          renders as the badge above and nothing else. */}
+                      {(hasLink(request, 'approve') || hasLink(request, 'reject')) && (
+                        <div class="requests__controls">
+                          {hasLink(request, 'approve') && (
+                            <form method="post" action={`/events/${event.id}/late-request`}>
+                              <input type="hidden" name="request_id" value={request.id} />
+                              <input type="hidden" name="decision" value="approve" />
+                              <button class="button" type="submit">
+                                Approve
+                              </button>
+                            </form>
+                          )}
+                          {hasLink(request, 'reject') && (
+                            <form method="post" action={`/events/${event.id}/late-request`}>
+                              <input type="hidden" name="request_id" value={request.id} />
+                              <input type="hidden" name="decision" value="reject" />
+                              <button class="button button--ghost" type="submit">
+                                Reject
+                              </button>
+                            </form>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </li>
                 ))}
@@ -1107,7 +1166,8 @@ function templateSize(field: string): number | '' {
   }
 
   .roles ul,
-  .bench ul {
+  .bench ul,
+  .unseated ul {
     display: grid;
     gap: 0.25rem;
     margin: 0;
@@ -1116,7 +1176,8 @@ function templateSize(field: string): number | '' {
   }
 
   .roles li,
-  .bench li {
+  .bench li,
+  .unseated li {
     padding: 0.3rem 0.5rem;
     border-radius: var(--radius-sm);
     background: var(--raised);
@@ -1129,14 +1190,28 @@ function templateSize(field: string): number | '' {
     font-size: var(--fs-xs);
   }
 
-  .bench {
+  .bench,
+  .unseated {
     margin-top: 1.25rem;
     padding-top: 1.25rem;
     border-top: 1px solid var(--border-subtle);
   }
 
-  .bench ul {
+  .bench ul,
+  .unseated ul {
     grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  }
+
+  .unseated__why {
+    margin: -0.25rem 0 0.5rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  .requests__controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
   }
 
   .requests {
