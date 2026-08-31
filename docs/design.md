@@ -4,6 +4,10 @@ The full spec (schema, assignment algorithm, tier rationale, licensing detail) l
 `raider-mate-service/docs/design.md`. This file covers only what is specific to this
 repo.
 
+Positioning, including what separates Raider Mate from WoWUtils, is section 1 there. It
+is what the upsell copy on a locked panel is allowed to claim, so read it before writing
+any of that copy here.
+
 **Vocabulary:** the privileged user is a **raid lead**, not an officer.
 
 ---

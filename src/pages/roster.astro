@@ -1,9 +1,13 @@
 ---
 import BotInstall from '../components/bot-install.astro';
 import DashboardLayout from '../layouts/dashboard-layout.astro';
+import { hasLink } from '../lib/links';
+import { ROLE_HUES, ROLE_ORDER } from '../lib/roles';
+import { mainRole, roleCounts, toRow } from '../lib/roster-view';
+import type { RoleFilter } from '../lib/roster-view';
 import { noticeFor } from '../lib/service-notice';
 import { classColor } from '../lib/wow-class';
-import type { Character } from '../lib/service-types';
+import type { Character, Role } from '../lib/service-types';
 
 export const prerender = false;
 
@@ -17,15 +21,100 @@ let characters: Character[] = [];
 let failure: string | null = null;
 
 try {
-  // Already ordered by name. Sorting again here would be this repo deciding something
-  // the service decided.
+  // Already ordered by name. The table opens in that order, and a reader clicking a
+  // column header afterwards is stating their own question, not correcting the service.
+  //
+  // The archived come down with the rest so the toggle that shows them costs no request.
+  // They are a separate list on screen, never extra rows in the active one.
   characters = await client.get<Character[]>(
     actor,
-    `/api/guilds/${session!.selectedGuildId}/characters`,
+    `/api/guilds/${session!.selectedGuildId}/characters?include_archived=true`,
   );
 } catch (error) {
   failure = noticeFor(error);
 }
+
+// What a write route sent us back with. Codes rather than the service's own words: a
+// message round-tripped through a query string is a message anyone can put on screen.
+const NOTICES: Record<string, string> = {
+  archived: 'Off the roster. Their raid history stays.',
+  restored: 'Back on the roster.',
+  denied: 'That is not yours to change.',
+  gone: 'That character is no longer here.',
+  failed: 'Raider Mate had a problem with that.',
+  unreachable: 'Raider Mate is not answering right now.',
+};
+const noticeCode = Astro.url.searchParams.get('notice') ?? '';
+const notice = NOTICES[noticeCode];
+const noticeIsGood = noticeCode === 'archived' || noticeCode === 'restored';
+
+const rows = characters.map(toRow);
+const active = rows.filter((row) => !row.archived);
+const archivedCount = rows.length - active.length;
+// Of the active roster. The archived have their own chip and their own count, because
+// the question "how many tanks do we have" is never about raiders who left.
+const counts = roleCounts(active);
+
+/**
+ * The role chips, in raid-frame order. A chip holds everyone who registered that role at
+ * any priority, so a melee who can tank answers both: the question a raid lead asks a
+ * role chip is who can fill the seat, not who signed up as one. The counts overlap and
+ * overshoot the roster because of it, which is the honest number rather than a tidy one.
+ *
+ * They are of the whole roster and stay put while other filters narrow the table: they
+ * are the guild's shape, which is the other question this strip answers.
+ *
+ * The last chip only appears when somebody is in it. A roster where everyone registered
+ * their roles should not carry a permanently empty filter.
+ */
+const ROLE_CHIPS: { key: RoleFilter; label: string; hue?: string }[] = [
+  { key: 'ALL', label: 'Everyone' },
+  ...ROLE_ORDER.map((role) => ({
+    key: role as RoleFilter,
+    label: { TANK: 'Tanks', HEALER: 'Healers', MDPS: 'Melee', RDPS: 'Ranged' }[role],
+    hue: ROLE_HUES[role],
+  })),
+  ...(counts.NONE > 0 ? [{ key: 'NONE' as RoleFilter, label: 'No role' }] : []),
+];
+
+/**
+ * The date a character stopped being findable. Day and month only: a raid lead reading
+ * this wants to know whether it was last week or last tier, and the year is noise on a
+ * roster that is refreshed hourly.
+ */
+const MISSING_DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' });
+
+/** Plural heads a column of raiders; a single row says the role in the singular. */
+const ROLE_NAMES: Record<Role, string> = {
+  TANK: 'Tank',
+  HEALER: 'Healer',
+  MDPS: 'Melee',
+  RDPS: 'Ranged',
+};
+
+const classes = [...new Set(characters.map((c) => c.class).filter((c) => c !== undefined))].sort();
+
+/**
+ * Every sortable column, in the order they are drawn. The header cells read their label
+ * and their sort key from here so the markup and the script cannot drift apart.
+ */
+const COLUMNS = [
+  { key: 'name', label: 'Character', numeric: false },
+  { key: 'role', label: 'Role', numeric: false },
+  { key: 'class', label: 'Class', numeric: false },
+  { key: 'ilvl', label: 'Item level', numeric: true },
+  { key: 'mplus', label: 'Mythic+', numeric: true },
+  { key: 'enchants', label: 'Enchants', numeric: true },
+  { key: 'tier', label: 'Tier', numeric: true },
+  { key: 'progression', label: 'Progression', numeric: false },
+] as const;
+
+/**
+ * The rows as data, for the script to sort and filter without reading them back out of
+ * the DOM. Escaped rather than interpolated raw: a character name reaches this string,
+ * and `</script` inside a JSON block ends the block whatever the JSON thinks.
+ */
+const payload = JSON.stringify(rows).replace(/</g, '\\u003c');
 ---
 
 <DashboardLayout title="Roster">
@@ -34,13 +123,14 @@ try {
   </p>
 
   {
-    characters.length > 0 && (
+    active.length > 0 && (
       <span slot="actions" class="badge">
-        {characters.length} characters
+        {active.length} characters
       </span>
     )
   }
 
+  {notice && <p class:list={['notice', noticeIsGood && 'notice--good']}>{notice}</p>}
   {failure && <p class="notice">{failure}</p>}
 
   {
@@ -60,37 +150,155 @@ try {
 
   {
     characters.length > 0 && (
-      <div class="panel">
+      <div class="panel" data-roster>
+        {/* Hidden until the script takes over. Controls that cannot do anything are
+            worse than no controls, and this whole bar is client-side work over rows
+            the server already sent. */}
+        <div class="filters" data-filters hidden>
+          <div class="filters__line">
+            <label class="visually-hidden" for="roster-search">
+              Search the roster
+            </label>
+            <input
+              id="roster-search"
+              class="filters__search"
+              type="search"
+              autocomplete="off"
+              placeholder="Search a name, class or spec"
+              data-search
+            />
+
+            <label class="visually-hidden" for="roster-class">
+              Class
+            </label>
+            <select id="roster-class" class="filters__class" data-class>
+              <option value="ALL">All classes</option>
+              {classes.map((name) => (
+                <option value={name}>{name}</option>
+              ))}
+            </select>
+
+            <button class="chip" type="button" aria-pressed="false" data-toggle="mainCharacter">
+              Main characters
+            </button>
+            {/* Only ever narrows a role, so it is dead until one is chosen. Disabled
+                says that; a control that quietly does nothing does not. */}
+            <button class="chip" type="button" aria-pressed="false" disabled data-toggle="mainSpec">
+              Main spec
+            </button>
+            <button class="chip" type="button" aria-pressed="false" data-toggle="missingEnchants">
+              Missing enchants
+            </button>
+            <button class="chip" type="button" aria-pressed="false" data-toggle="unsynced">
+              Not synced
+            </button>
+            {/* A separate roster rather than a narrowing of this one, so it only exists
+                once somebody is on it. */}
+            {archivedCount > 0 && (
+              <button class="chip" type="button" aria-pressed="false" data-toggle="archived">
+                Archived
+                <span class="chip__count">{archivedCount}</span>
+              </button>
+            )}
+
+            <p class="filters__count" role="status" data-count />
+          </div>
+
+          <div class="filters__roles" role="group" aria-label="Filter by role">
+            {ROLE_CHIPS.map((chip) => (
+              <button
+                class:list={['chip', chip.hue && 'chip--role']}
+                type="button"
+                aria-pressed={chip.key === 'ALL' ? 'true' : 'false'}
+                style={chip.hue ? `--hue: ${chip.hue}` : undefined}
+                data-role={chip.key}
+              >
+                {chip.hue && <span class="chip__dot" aria-hidden="true" />}
+                {chip.label}
+                <span class="chip__count">{counts[chip.key]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th scope="col">Character</th>
-                <th scope="col">Class</th>
-                <th scope="col" class="num">
-                  Item level
+                {COLUMNS.map((column) => (
+                  <th
+                    scope="col"
+                    class:list={[column.numeric && 'num']}
+                    aria-sort={column.key === 'name' ? 'ascending' : 'none'}
+                    data-column={column.key}
+                  >
+                    {/* A plain heading until the script arrives, then a sort control.
+                        The button is drawn now and made real later, so the column label
+                        does not move when the page wakes up. */}
+                    <span class="sort" data-sort>
+                      {column.label}
+                      <span class="sort__mark" aria-hidden="true" />
+                    </span>
+                  </th>
+                ))}
+                {/* Read aloud, never drawn. The column holds one control and a heading
+                    over it would be a word on every screen for the sake of one. */}
+                <th scope="col" class="visually-hidden">
+                  Roster
                 </th>
-                <th scope="col" class="num">
-                  Mythic+
-                </th>
-                <th scope="col" class="num">
-                  Enchants
-                </th>
-                <th scope="col" class="num">
-                  Tier
-                </th>
-                <th scope="col">Progression</th>
               </tr>
             </thead>
-            <tbody>
-              {characters.map((character) => (
-                <tr>
+            <tbody data-body>
+              {characters.map((character, index) => (
+                <tr data-row={index}>
                   <th scope="row">
                     <a class="name" href={character.raiderio_url} rel="noreferrer">
                       {character.name}
                     </a>
                     {character.is_main && <span class="badge main">Main</span>}
+                    {/* Why a raid lead might archive this one. Stated as the fact the
+                        service sent, never as a verdict: a rename reads exactly like a
+                        raider who quit, and this page is not the one to tell them
+                        apart. */}
+                    {character.not_found_since && (
+                      <span class="badge badge--hue missing" style="--hue: var(--warning)">
+                        Missing since{' '}
+                        <time datetime={character.not_found_since}>
+                          {MISSING_DATE.format(new Date(character.not_found_since))}
+                        </time>
+                      </span>
+                    )}
                   </th>
+                  <td class="role">
+                    {/* The role menu the raider registered, front of the list first.
+                        The service ordered it; this reads it. */}
+                    {mainRole(character) === null ? (
+                      <span class="dash">Not set</span>
+                    ) : (
+                      <span class="role__main" style={`--hue: ${ROLE_HUES[mainRole(character)!]}`}>
+                        <span class="role__dot" aria-hidden="true" />
+                        {ROLE_NAMES[mainRole(character)!]}
+                      </span>
+                    )}
+                    {(character.roles?.length ?? 0) > 1 && (
+                      <span class="role__also">
+                        <span class="visually-hidden">
+                          also{' '}
+                          {character
+                            .roles!.slice(1)
+                            .map((choice) => ROLE_NAMES[choice.role])
+                            .join(', ')}
+                        </span>
+                        {character.roles!.slice(1).map((choice) => (
+                          <span
+                            class="role__dot role__dot--small"
+                            style={`--hue: ${ROLE_HUES[choice.role]}`}
+                            aria-hidden="true"
+                          />
+                        ))}
+                      </span>
+                    )}
+                  </td>
                   <td class="class">
                     {/* A marker, never the text colour: Death Knight red and Rogue
                         yellow do not clear 4.5:1 on this background. */}
@@ -173,17 +381,456 @@ try {
                       Not synced yet
                     </td>
                   )}
+                  <td class="actions">
+                    {/* One of the two, or neither. Rendered from the link the service
+                        offered and nothing else: a raider with no say over this
+                        character gets no control, rather than a button that 403s. */}
+                    {(['archive', 'unarchive'] as const)
+                      .filter((direction) => hasLink(character, direction))
+                      .map((direction) => (
+                        <form method="post" action={`/characters/${character.id}/archive`}>
+                          <input type="hidden" name="direction" value={direction} />
+                          <button class="button button--ghost" type="submit">
+                            {direction === 'archive' ? 'Archive' : 'Restore'}
+                          </button>
+                        </form>
+                      ))}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        <div class="empty" data-nothing hidden>
+          <h3>Nobody matches that</h3>
+          <p>No character in the roster answers every filter you have on.</p>
+          <button class="button button--quiet" type="button" data-clear>
+            Clear the filters
+          </button>
+        </div>
+
+        <script type="application/json" data-rows is:inline set:html={payload} />
       </div>
     )
   }
 </DashboardLayout>
 
+<script>
+  import type { Filters, RoleFilter, RosterRow, SortDirection, SortKey } from '../lib/roster-view';
+  import { NO_FILTERS, matches, roleCounts, sortRows } from '../lib/roster-view';
+
+  /**
+   * The roster table's search, role split and column sorting.
+   *
+   * Progressive enhancement over rows the server already rendered, not an island: there
+   * is no state to write anywhere and no request to make. The whole roster is on the
+   * page, and this reorders it and hides what the reader filtered out. Every decision
+   * about a raider was made by the service before the markup existed.
+   */
+  function setUp(root: HTMLElement) {
+    const rowsEl = root.querySelector<HTMLScriptElement>('[data-rows]')!;
+    const bar = root.querySelector<HTMLElement>('[data-filters]')!;
+    const body = root.querySelector<HTMLElement>('[data-body]')!;
+    const search = root.querySelector<HTMLInputElement>('[data-search]')!;
+    const classSelect = root.querySelector<HTMLSelectElement>('[data-class]')!;
+    const countEl = root.querySelector<HTMLElement>('[data-count]')!;
+    const nothing = root.querySelector<HTMLElement>('[data-nothing]')!;
+    const clear = root.querySelector<HTMLButtonElement>('[data-clear]')!;
+
+    const data = JSON.parse(rowsEl.textContent!) as RosterRow[];
+    const trs = [...body.querySelectorAll<HTMLTableRowElement>('[data-row]')];
+    const rowOf = (tr: HTMLTableRowElement) => data[Number(tr.dataset.row)]!;
+
+    let filters: Filters = { ...NO_FILTERS };
+    let sortKey: SortKey = 'name';
+    let direction: SortDirection = 'asc';
+
+    function render() {
+      for (const tr of sortRows(trs, rowOf, sortKey, direction)) {
+        body.append(tr);
+      }
+
+      let shown = 0;
+      let last: HTMLTableRowElement | null = null;
+      for (const tr of trs) {
+        const visible = matches(rowOf(tr), filters);
+        tr.hidden = !visible;
+        // The table draws no divider under its final row. Which row that is changes
+        // every time a filter does, so the class moves with it.
+        tr.classList.remove('row--last');
+        if (visible) {
+          shown += 1;
+          last = tr;
+        }
+      }
+      last?.classList.add('row--last');
+
+      nothing.hidden = shown > 0;
+      countEl.textContent = shown === trs.length ? '' : `${shown} of ${trs.length}`;
+
+      // The chips count the whole roster, not the filtered table, because they are the
+      // guild's shape rather than a second readout of what is on screen. Two things do
+      // change what a chip means and so have to move its number: main spec, and which
+      // of the two rosters is on screen.
+      const counts = roleCounts(
+        data.filter((row) => row.archived === filters.archived),
+        filters.mainSpec,
+      );
+      for (const chip of roleChips) {
+        chip.querySelector('.chip__count')!.textContent = String(
+          counts[chip.dataset.role as RoleFilter],
+        );
+      }
+    }
+
+    function setFilters(next: Partial<Filters>) {
+      filters = { ...filters, ...next };
+      render();
+    }
+
+    search.addEventListener('input', () => setFilters({ search: search.value }));
+    search.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && search.value !== '') {
+        search.value = '';
+        setFilters({ search: '' });
+      }
+    });
+
+    classSelect.addEventListener('change', () => setFilters({ className: classSelect.value }));
+
+    for (const button of root.querySelectorAll<HTMLButtonElement>('[data-toggle]')) {
+      const key = button.dataset.toggle as keyof Filters;
+      button.addEventListener('click', () => {
+        const on = button.getAttribute('aria-pressed') !== 'true';
+        button.setAttribute('aria-pressed', String(on));
+        setFilters({ [key]: on } as Partial<Filters>);
+      });
+    }
+
+    const mainSpec = root.querySelector<HTMLButtonElement>('[data-toggle="mainSpec"]')!;
+    const roleChips = [...root.querySelectorAll<HTMLButtonElement>('[data-role]')];
+    for (const chip of roleChips) {
+      chip.addEventListener('click', () => {
+        for (const other of roleChips) {
+          other.setAttribute('aria-pressed', String(other === chip));
+        }
+        const role = chip.dataset.role as Filters['role'];
+        // Its pressed state survives being disabled, so picking a role again brings
+        // back the narrowing the reader last asked for.
+        mainSpec.disabled = role === 'ALL' || role === 'NONE';
+        setFilters({ role });
+      });
+    }
+
+    clear.addEventListener('click', () => {
+      search.value = '';
+      classSelect.value = 'ALL';
+      for (const button of root.querySelectorAll('[data-toggle]')) {
+        button.setAttribute('aria-pressed', 'false');
+      }
+      for (const chip of roleChips) {
+        chip.setAttribute('aria-pressed', String(chip.dataset.role === 'ALL'));
+      }
+      mainSpec.disabled = true;
+      filters = { ...NO_FILTERS };
+      render();
+      search.focus();
+    });
+
+    /*
+     * The headings become sort controls here rather than in the markup, so a page
+     * without this script keeps plain headings instead of buttons that do nothing.
+     */
+    for (const th of root.querySelectorAll<HTMLTableCellElement>('[data-column]')) {
+      const key = th.dataset.column as SortKey;
+      const label = th.querySelector<HTMLElement>('[data-sort]')!;
+      const button = document.createElement('button');
+      // Every attribute, not just the class: Astro scopes this component's styles
+      // behind a data-astro-cid attribute, and an element built here without it would
+      // land outside every rule in the block below.
+      for (const attribute of label.attributes) {
+        button.setAttribute(attribute.name, attribute.value);
+      }
+      button.type = 'button';
+      button.replaceChildren(...label.childNodes);
+      label.replaceWith(button);
+
+      button.addEventListener('click', () => {
+        // A fresh column opens the way that column is usually read: names from A, and
+        // every figure from the biggest, because "who has the most" is the question a
+        // number column gets asked. Clicking the column you are already on flips it.
+        if (sortKey === key) {
+          direction = direction === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortKey = key;
+          direction = key === 'name' || key === 'class' || key === 'role' ? 'asc' : 'desc';
+        }
+
+        for (const other of root.querySelectorAll('[data-column]')) {
+          other.setAttribute(
+            'aria-sort',
+            other !== th ? 'none' : direction === 'asc' ? 'ascending' : 'descending',
+          );
+        }
+        render();
+      });
+    }
+
+    bar.hidden = false;
+    render();
+  }
+
+  /*
+   * Run on every navigation, not once per module. The dashboard routes through Astro's
+   * ClientRouter, which swaps the document without reloading it, so a module that has
+   * already run does not run again and arriving at the roster from another page would
+   * leave the bar hidden and the headers inert.
+   */
+  function boot() {
+    for (const root of document.querySelectorAll<HTMLElement>('[data-roster]')) {
+      if (!root.classList.contains('roster--live')) {
+        root.classList.add('roster--live');
+        setUp(root);
+      }
+    }
+  }
+
+  document.addEventListener('astro:page-load', boot);
+  boot();
+</script>
+
 <style>
+  /* ------------------------------------------------------------------- toolbar */
+
+  /* The browser's own `[hidden] { display: none }` is the weakest rule there is, and
+     any `display` set here beats it. Both blocks below are laid out and both are hidden
+     at times, so each has to say so itself. */
+  .filters[hidden],
+  .empty[hidden] {
+    display: none;
+  }
+
+  .filters {
+    display: grid;
+    gap: 0.625rem;
+    padding: 0.875rem 1.25rem;
+    border-bottom: 1px solid var(--border-subtle);
+    background: color-mix(in srgb, var(--raised) 55%, transparent);
+  }
+
+  .filters__line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .filters__search {
+    flex: 1 1 14rem;
+    max-width: 22rem;
+    min-height: 34px;
+    padding: 0.4rem 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--raised);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: var(--fs-sm);
+    transition:
+      border-color var(--dur-1) var(--ease),
+      box-shadow var(--dur-1) var(--ease);
+  }
+
+  .filters__search::placeholder {
+    color: var(--text-tertiary);
+  }
+
+  .filters__search:focus-visible {
+    border-color: var(--accent);
+    box-shadow: var(--ring);
+    outline: none;
+  }
+
+  .filters__class {
+    width: auto;
+    min-width: 9rem;
+  }
+
+  /* Pushed to the far end, where a count belongs, and silent while the table is
+     whole: "34 of 34" is a sentence nobody needs to read. */
+  .filters__count {
+    margin-left: auto;
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .filters__roles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+
+  /* ---------------------------------------------------------------------- chips */
+
+  .chip {
+    display: inline-flex;
+    gap: 0.4375rem;
+    align-items: center;
+    min-height: 30px;
+    padding: 0.1875rem 0.625rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    background: var(--raised);
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease),
+      color var(--dur-1) var(--ease);
+  }
+
+  .chip:hover {
+    border-color: var(--border-strong);
+    background: var(--hover);
+    color: var(--text-primary);
+  }
+
+  .chip:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .chip:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* A disabled chip shows the state it is in, not the one it remembers. Main spec keeps
+     its pressed state while no role is chosen, and lighting it up would claim a filter
+     that is not narrowing anything. */
+  .chip:disabled,
+  .chip:disabled:hover {
+    border-color: var(--border);
+    background: var(--raised);
+    color: var(--text-secondary);
+  }
+
+  /* A filter that is on is where the reader currently is, which is what amber marks.
+     Role chips override it below, because a role already has a colour that means
+     something and a second one would be decoration. */
+  .chip[aria-pressed='true'] {
+    border-color: color-mix(in srgb, var(--accent) 44%, transparent);
+    background: color-mix(in srgb, var(--accent) 13%, transparent);
+    color: var(--accent);
+  }
+
+  .chip--role[aria-pressed='true'] {
+    border-color: color-mix(in srgb, var(--hue) 44%, transparent);
+    background: color-mix(in srgb, var(--hue) 13%, transparent);
+    color: var(--hue);
+  }
+
+  .chip__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--hue);
+    flex: none;
+  }
+
+  .chip__count {
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chip[aria-pressed='true'] .chip__count {
+    color: inherit;
+    opacity: 0.75;
+  }
+
+  /* ------------------------------------------------------------------- sorting */
+
+  .sort {
+    display: inline-flex;
+    gap: 0.375rem;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+  }
+
+  button.sort {
+    cursor: pointer;
+    transition: color var(--dur-1) var(--ease);
+  }
+
+  button.sort:hover {
+    color: var(--text-primary);
+  }
+
+  button.sort:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: var(--radius-sm);
+  }
+
+  .num .sort {
+    flex-direction: row-reverse;
+  }
+
+  /* Drawn at rest so the column does not shift by 7px when it becomes the sorted one.
+     Faint on hover is the affordance; solid is the answer. */
+  .sort__mark {
+    width: 7px;
+    height: 4px;
+    background: currentcolor;
+    clip-path: polygon(50% 0, 100% 100%, 0 100%);
+    opacity: 0;
+    transition:
+      opacity var(--dur-1) var(--ease),
+      transform var(--dur-1) var(--ease);
+  }
+
+  button.sort:hover .sort__mark {
+    opacity: 0.4;
+  }
+
+  th[aria-sort='ascending'] .sort__mark,
+  th[aria-sort='descending'] .sort__mark {
+    opacity: 1;
+  }
+
+  th[aria-sort='descending'] .sort__mark {
+    transform: rotate(180deg);
+  }
+
+  th[aria-sort='ascending'] .sort,
+  th[aria-sort='descending'] .sort {
+    color: var(--text-primary);
+  }
+
+  /* --------------------------------------------------------------------- rows */
+
+  tbody tr[hidden] {
+    display: none;
+  }
+
+  /* The divider under the last visible row, which filtering moves. */
+  tbody tr.row--last td,
+  tbody tr.row--last th {
+    border-bottom: 0;
+  }
+
   .name {
     color: var(--text-primary);
     font-weight: 560;
@@ -196,6 +843,67 @@ try {
 
   .main {
     margin-left: 0.5rem;
+  }
+
+  /* The evidence, not a verdict. Warm rather than red: a character Raider.IO cannot
+     find is usually a rename, and the row is asking to be looked at rather than
+     reporting a failure. */
+  .missing {
+    margin-left: 0.5rem;
+  }
+
+  .actions {
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  /* Quiet until the row is under the pointer or the control is tabbed to. This column
+     is a raid lead's occasional job, and one button per row shouting on a roster of
+     thirty is thirty things competing with the data. */
+  .actions .button {
+    opacity: 0;
+    transition: opacity var(--dur-1) var(--ease);
+  }
+
+  tbody tr:hover .actions .button,
+  .actions .button:focus-visible {
+    opacity: 1;
+  }
+
+  .role {
+    white-space: nowrap;
+  }
+
+  .role__main {
+    display: inline-flex;
+    gap: 0.4375rem;
+    align-items: baseline;
+    color: var(--hue);
+  }
+
+  .role__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--hue);
+    flex: none;
+    align-self: center;
+  }
+
+  /* The rest of the menu, as dots. A raid lead reads "healer who can also tank" off
+     the colours faster than off a second word, and the word is still read aloud. */
+  .role__also {
+    display: inline-flex;
+    gap: 0.1875rem;
+    align-items: center;
+    margin-left: 0.4375rem;
+    vertical-align: 1px;
+    opacity: 0.65;
+  }
+
+  .role__dot--small {
+    width: 4px;
+    height: 4px;
   }
 
   .class {
@@ -283,6 +991,17 @@ try {
       display: none;
     }
 
+    /* No pointer to hover with, so the control is simply there. */
+    .actions {
+      grid-column: 1 / -1;
+      justify-self: start;
+      margin-top: 0.25rem;
+    }
+
+    .actions .button {
+      opacity: 1;
+    }
+
     tbody tr {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -300,6 +1019,12 @@ try {
 
     tbody th {
       grid-column: 1 / -1;
+    }
+
+    /* Under the name, where it reads as the raider's line rather than as a column. */
+    .role {
+      grid-column: 1 / -1;
+      font-size: var(--fs-sm);
     }
 
     .num {
@@ -332,6 +1057,10 @@ try {
 
     .prog {
       grid-column: 1 / -1;
+    }
+
+    .filters__count {
+      margin-left: 0;
     }
   }
 </style>

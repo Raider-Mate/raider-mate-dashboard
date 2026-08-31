@@ -12,6 +12,8 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-31
+
 ### Added
 
 - **The roster shows enchants, tier pieces, and boss progression.** Three columns, all
@@ -35,12 +37,62 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
   second view of a list the page had. Signup counts are not on it yet, because the service
   does not report them per event.
 
+- **The event page says what became of the reminder.** A raid whose pre-event ping never
+  arrived looked exactly like one whose ping went out, on this page and everywhere else,
+  so a guild could go weeks without knowing reminders had stopped. The page now carries
+  one line: when the reminder fires and where it lands, or that it has been sent. A
+  reminder that reached nobody says so to raid leads, with the reason, since they are
+  the ones who can fix it. Needs a service carrying the event's `reminder` state.
+
+- **Raiders who left can be taken off the roster without erasing their raids.** An
+  Archive control on each roster row, and an Archived chip that shows the list of people
+  who are off it, with a Restore beside each. Archived and active never share a table:
+  the active roster is what a comp is planned from, and a leaver in it is a raider who
+  is not coming.
+
+  This is not the delete that was already there. Deleting a character cascades in the
+  service, taking their signups, comp slots and gear history with them, which is right
+  for a registration typed wrong an hour ago and wrong for a raider who left after a
+  tier: it would remove them from the attendance record for raids they turned up to.
+  Archiving keeps every bit of that, and undoes.
+
+  The roster also shows why you might want to. A character Raider.IO can no longer find
+  carries "Missing since" and the date, which is what a rename, a realm transfer and a
+  deleted character all look like. Nothing is archived automatically. Both controls come
+  from links the service offers, so a raider with no say over a character sees neither.
+  Needs a service carrying `archived_at`, `not_found_since`, and the archive links.
+
+- **The roster splits by role, and can be searched, filtered and sorted.** Thirty-odd
+  characters in one alphabetical list answered "is this raider registered" and nothing
+  else. There is now a Role column carrying the role each raider plays first, with the
+  rest of their menu as dots beside it, and a bar above the table: a search box that
+  matches a name, class or spec and ignores diacritics, so `centurian` finds Centurián;
+  role chips carrying the count in each, which double as the split; a class picker; and
+  toggles for main characters, main spec, missing enchants, and never synced. A role chip
+  holds everyone who registered that role at any priority, so a melee who can tank appears
+  under both and the counts overshoot the roster: what a raid lead asks a role chip is who
+  can fill the seat, not who signed up as one. Main spec narrows a chip to the raiders who
+  play that role first, and stays disabled until a role is chosen, since it can only ever
+  narrow one. It is deliberately a separate control from main characters: a guild says
+  "main" about a character and "main spec" about a role, and one toggle carrying both
+  would answer the wrong question half the time. Every column header sorts,
+  and a raider with no number sits at the bottom whichever way the column is pointed.
+
+  All of it runs on the rows already on the page, so nothing is refetched and nothing is
+  stored. The table opens in the order the service sent, and the bar only appears once
+  the page's script is running: filters that cannot filter are worse than none. Needs a
+  service carrying `roles` on the guild roster read.
+
 ### Changed
 
 - **Pages are wider.** The content column ran to 76rem regardless of screen size, which
   left the roster and comp tables cramped on a desktop monitor while the space beside
   them sat empty. It now runs to 86rem. The top bar and footer follow the same measure,
   so nothing drifts out of line with the content under it.
+
+- **Late requests now sit between the comp and the signups on the event page.** They
+  were at the bottom, below the whole signup table, so a request the bot had already
+  announced in the channel was easy to scroll past and leave pending.
 
 ## [0.7.0] - 2026-08-23
 

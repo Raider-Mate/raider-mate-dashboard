@@ -22,6 +22,7 @@ import type {
   CompInfo,
   Event,
   LateRequest,
+  ReminderDelivery,
   Role,
   Signup,
 } from '../../../lib/service-types';
@@ -159,6 +160,56 @@ function reasonFor(board: Board, slot: Assignment): string | undefined {
   return board.mode === 'MANUAL' ? undefined : slot.reason;
 }
 
+/**
+ * What to say about the pre-event reminder, or nothing. The service decided the state;
+ * this picks the sentence for it.
+ *
+ * A reminder that fired and reached people is worth a line to everyone, since knowing
+ * the ping is coming is the point of it. A reminder that reached nobody is a raid
+ * lead's problem to fix, so it goes to whoever the service offered the edit link.
+ */
+const REMINDER_TARGET: Record<ReminderDelivery, string> = {
+  PING: 'the events channel',
+  DM: 'everyone signed up',
+  BOTH: 'the events channel and everyone signed up',
+};
+
+const SKIP_REASONS: Record<string, string> = {
+  no_channel: 'This event has no Discord channel to post in.',
+  no_recipients: 'Nobody had signed up when it fired.',
+  not_scheduled: 'None is scheduled. An edit made inside the lead time cancels it.',
+};
+
+function reminderNote(): { text: string; bad: boolean } | null {
+  const reminder = event?.reminder;
+  if (!reminder || reminder.state === 'OFF') {
+    return null;
+  }
+
+  const mayFix = event ? hasLink(event, 'edit') : false;
+
+  switch (reminder.state) {
+    case 'SCHEDULED':
+      return {
+        text: `Reminder pings ${REMINDER_TARGET[reminder.delivery]} ${reminder.lead_minutes} minutes before the pull.`,
+        bad: false,
+      };
+    case 'SENT':
+      return { text: 'Reminder sent.', bad: false };
+    case 'SKIPPED':
+      return mayFix
+        ? {
+            text: `The reminder went to nobody. ${SKIP_REASONS[reminder.reason ?? ''] ?? ''}`.trim(),
+            bad: true,
+          }
+        : null;
+    case 'FAILED':
+      return mayFix ? { text: 'The reminder did not go out.', bad: true } : null;
+  }
+}
+
+const reminder = reminderNote();
+
 const SIZES = [
   { name: 'tanks', label: 'Tanks' },
   { name: 'healers', label: 'Healers' },
@@ -218,6 +269,8 @@ function templateSize(field: string): number | '' {
 
   {notice && <p class:list={['notice', noticeIsGood && 'notice--good']}>{notice}</p>}
   {failure && <p class="notice">{failure}</p>}
+
+  {reminder && <p class:list={[reminder.bad ? 'notice' : 'reminder']}>{reminder.text}</p>}
 
   {
     /* Rendered from the links and nothing else: a raider with a report to read sees the
@@ -574,6 +627,75 @@ function templateSize(field: string): number | '' {
           )
         }
 
+        {hasLink(event, 'late-requests') && (
+          <section class="section">
+            <h2>Late requests</h2>
+            {lateRequests.length === 0 && (
+              <div class="panel">
+                <div class="empty">
+                  <h3>Nothing waiting</h3>
+                  <p>Requests to change a signup after the deadline land here.</p>
+                </div>
+              </div>
+            )}
+            {lateRequests.length > 0 && (
+              <ul class="requests">
+                {lateRequests.map((request) => (
+                  <li class="panel">
+                    <div class="panel__body">
+                      <div class="requests__top">
+                        <span class="raider__name">
+                          {names.get(request.character_id) ?? request.character_id}
+                        </span>
+                        <span class="badge">{request.state.toLowerCase()}</span>
+                      </div>
+                      <p class="muted">
+                        Asked for {STATUS_LABELS[request.status]}
+                        {request.late_until && (
+                          <>
+                            {' until '}
+                            <time datetime={request.late_until}>
+                              {formatEventTime(request.late_until, timezone)}
+                            </time>
+                          </>
+                        )}
+                      </p>
+                      {request.note && <p class="note">{request.note}</p>}
+
+                      {/* The bot's notice says this is waiting in the dashboard, so the
+                          dashboard has to be able to answer it. Both links arrive only on
+                          a pending request, and only for a raid lead, so a decided one
+                          renders as the badge above and nothing else. */}
+                      {(hasLink(request, 'approve') || hasLink(request, 'reject')) && (
+                        <div class="requests__controls">
+                          {hasLink(request, 'approve') && (
+                            <form method="post" action={`/events/${event.id}/late-request`}>
+                              <input type="hidden" name="request_id" value={request.id} />
+                              <input type="hidden" name="decision" value="approve" />
+                              <button class="button" type="submit">
+                                Approve
+                              </button>
+                            </form>
+                          )}
+                          {hasLink(request, 'reject') && (
+                            <form method="post" action={`/events/${event.id}/late-request`}>
+                              <input type="hidden" name="request_id" value={request.id} />
+                              <input type="hidden" name="decision" value="reject" />
+                              <button class="button button--ghost" type="submit">
+                                Reject
+                              </button>
+                            </form>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
         <section class="panel signups">
           <div class="panel__head">
             <h2>Signups</h2>
@@ -714,75 +836,6 @@ function templateSize(field: string): number | '' {
             </div>
           )}
         </section>
-
-        {hasLink(event, 'late-requests') && (
-          <section class="section">
-            <h2>Late requests</h2>
-            {lateRequests.length === 0 && (
-              <div class="panel">
-                <div class="empty">
-                  <h3>Nothing waiting</h3>
-                  <p>Requests to change a signup after the deadline land here.</p>
-                </div>
-              </div>
-            )}
-            {lateRequests.length > 0 && (
-              <ul class="requests">
-                {lateRequests.map((request) => (
-                  <li class="panel">
-                    <div class="panel__body">
-                      <div class="requests__top">
-                        <span class="raider__name">
-                          {names.get(request.character_id) ?? request.character_id}
-                        </span>
-                        <span class="badge">{request.state.toLowerCase()}</span>
-                      </div>
-                      <p class="muted">
-                        Asked for {STATUS_LABELS[request.status]}
-                        {request.late_until && (
-                          <>
-                            {' until '}
-                            <time datetime={request.late_until}>
-                              {formatEventTime(request.late_until, timezone)}
-                            </time>
-                          </>
-                        )}
-                      </p>
-                      {request.note && <p class="note">{request.note}</p>}
-
-                      {/* The bot's notice says this is waiting in the dashboard, so the
-                          dashboard has to be able to answer it. Both links arrive only on
-                          a pending request, and only for a raid lead, so a decided one
-                          renders as the badge above and nothing else. */}
-                      {(hasLink(request, 'approve') || hasLink(request, 'reject')) && (
-                        <div class="requests__controls">
-                          {hasLink(request, 'approve') && (
-                            <form method="post" action={`/events/${event.id}/late-request`}>
-                              <input type="hidden" name="request_id" value={request.id} />
-                              <input type="hidden" name="decision" value="approve" />
-                              <button class="button" type="submit">
-                                Approve
-                              </button>
-                            </form>
-                          )}
-                          {hasLink(request, 'reject') && (
-                            <form method="post" action={`/events/${event.id}/late-request`}>
-                              <input type="hidden" name="request_id" value={request.id} />
-                              <input type="hidden" name="decision" value="reject" />
-                              <button class="button button--ghost" type="submit">
-                                Reject
-                              </button>
-                            </form>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        )}
       </>
     )
   }
@@ -833,6 +886,15 @@ function templateSize(field: string): number | '' {
     flex: none;
     border-radius: var(--radius-full);
     background: var(--text-tertiary);
+  }
+
+  /* A reminder that is on its way is background information: one quiet line, the same
+     weight as the times in the header. A reminder that reached nobody wears the notice
+     styling instead, because it is something to fix. */
+  .reminder {
+    margin-bottom: 1rem;
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
   }
 
   /* Whatever the comp turned out to be, the signups start their own block under it. */

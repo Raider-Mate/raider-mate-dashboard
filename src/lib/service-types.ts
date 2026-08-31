@@ -18,6 +18,25 @@ export type ReminderDelivery = 'PING' | 'DM' | 'BOTH';
 export type RequestState = 'PENDING' | 'APPROVED' | 'REJECTED';
 
 /**
+ * What became of an event's pre-event reminder. The service decides this; the page
+ * renders the word it was given rather than working it out from times and flags.
+ */
+export type ReminderState = 'OFF' | 'SCHEDULED' | 'SENT' | 'SKIPPED' | 'FAILED';
+
+export interface EventReminder {
+  lead_minutes: number;
+  delivery: ReminderDelivery;
+  /** Set while the reminder is still SCHEDULED, absent once it has run. */
+  runs_at?: string;
+  state: ReminderState;
+  /**
+   * Why nobody was told, on SKIPPED alone. The service owns the vocabulary, so an
+   * unfamiliar reason renders as a plain "it did not go out" rather than nothing.
+   */
+  reason?: string;
+}
+
+/**
  * BENCH is deliberately absent. Bench lives on comp_slots.is_bench, decided fresh by
  * every lock, and was dropped from this enum. Never send it.
  */
@@ -60,8 +79,26 @@ export interface Character extends Linked {
   enchants_expected?: number;
   tier_pieces?: number;
   progression?: RaidProgression;
+  /**
+   * What this raider signed up to play, in priority order, so the first entry is the
+   * role they play first. The guild roster read carries it; the single-character and
+   * write responses do not. Absent means no menu registered, which is not an empty one.
+   */
+  roles?: RoleChoice[];
   is_main: boolean;
   synced: boolean;
+  /**
+   * When this character came off the roster. Absent while they are on it. The service
+   * keeps the row and everything hanging off it, so an archived raider still has a name
+   * on every signup and comp board they were ever part of.
+   */
+  archived_at?: string;
+  /**
+   * When Raider.IO started answering 404 for this character. Absent while the last sync
+   * found them. Evidence for a raid lead, never a verdict: a rename and a raider who
+   * quit the game look identical from here.
+   */
+  not_found_since?: string;
 }
 
 /**
@@ -92,6 +129,11 @@ export interface Event extends Linked {
   difficulty?: RaidDifficulty;
   /** The resolved lead time, not what the creator asked for. 0 means no reminder. */
   reminder_lead_minutes?: number;
+  /**
+   * What became of the pre-event reminder. Single-event reads carry it; the event list
+   * does not, so treat its absence as "not asked" rather than "no reminder".
+   */
+  reminder?: EventReminder;
   /**
    * The WarcraftLogs report a raid lead attached after the night. Absent until someone
    * does, and most events never get one. The `warcraftlogs` link carries the same URL;
