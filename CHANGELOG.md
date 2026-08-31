@@ -12,6 +12,36 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+### Added
+
+- **The roster shows enchants, tier pieces, and boss progression.** Three columns, all
+  read straight from what the service now returns. Enchants read as "7/8", warm when a
+  slot is bare. Tier is the equipped piece count. Progression is all three difficulties
+  side by side rather than whichever one looks best, because which kill counts is a raid
+  lead's judgement.
+
+  A character the service has established nothing for shows a dash, never a zero. That
+  distinction is real: a raider wearing no tier and a service with no season configured
+  are different facts, and the service is careful to send them differently.
+
+- **Raid nights on the calendar show how many are confirmed.** Needs the
+  `signup_counts` the service now sends on event reads.
+
+- **A calendar under the upcoming events list.** The table answers "what is next"; the
+  calendar answers "which nights are we raiding this month", which is the question a raid
+  lead asks when booking around one. Arrows step through months, days are placed in the
+  guild's own timezone, and each raid links straight to its event page. It needs no extra
+  request: the service already returns every upcoming event in one call, so this is a
+  second view of a list the page had. Signup counts are not on it yet, because the service
+  does not report them per event.
+
+### Changed
+
+- **Pages are wider.** The content column ran to 76rem regardless of screen size, which
+  left the roster and comp tables cramped on a desktop monitor while the space beside
+  them sat empty. It now runs to 86rem. The top bar and footer follow the same measure,
+  so nothing drifts out of line with the content under it.
+
 ## [0.7.0] - 2026-08-23
 
 ### Fixed

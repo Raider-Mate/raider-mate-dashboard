@@ -28,6 +28,18 @@ export interface RoleChoice {
   priority: number;
 }
 
+/**
+ * A character's standing in the raid the service tracks. The slug rides along so this
+ * repo never guesses which tier the counts describe.
+ */
+export interface RaidProgression {
+  raid: string;
+  bosses: number;
+  normal: number;
+  heroic: number;
+  mythic: number;
+}
+
 export interface Character extends Linked {
   id: string;
   name: string;
@@ -38,6 +50,16 @@ export interface Character extends Linked {
   spec?: string;
   ilvl?: number;
   mplus_score?: number;
+  /**
+   * Gear facts the service derives at sync time. Absent and zero are different answers
+   * and the service is careful to keep them apart: a raider who enchanted nothing is
+   * `enchants_missing: 0`, while a service with no season configured omits the field.
+   * Render the absence as unknown, never as compliant.
+   */
+  enchants_missing?: number;
+  enchants_expected?: number;
+  tier_pieces?: number;
+  progression?: RaidProgression;
   is_main: boolean;
   synced: boolean;
 }
@@ -76,6 +98,12 @@ export interface Event extends Linked {
    * render from the link, since that is what the service offered.
    */
   warcraftlogs_url?: string;
+  /**
+   * Signups tallied by status, every status present even at zero. Sent on reads only:
+   * a create or edit response omits it. No total, deliberately, because which statuses
+   * read as "coming" is the caller's question and the service refuses to answer it.
+   */
+  signup_counts?: Partial<Record<SignupStatus, number>>;
 }
 
 export interface Signup extends Linked {

@@ -2,7 +2,13 @@
 import EventChips from '../../components/event-chips.astro';
 import BotInstall from '../../components/bot-install.astro';
 import DashboardLayout from '../../layouts/dashboard-layout.astro';
-import { fetchGuildTimezone, formatEventTime, formatSignupWindow } from '../../lib/guild-time';
+import { DIFFICULTY_HUES } from '../../lib/difficulty';
+import {
+  fetchGuildTimezone,
+  formatEventTime,
+  formatSignupWindow,
+  instantToGuildTime,
+} from '../../lib/guild-time';
 import { getLink } from '../../lib/links';
 import { noticeFor } from '../../lib/service-notice';
 import type { Event } from '../../lib/service-types';
@@ -69,11 +75,105 @@ function href(n: number, toPast = past): string {
   if (n > 1) {
     params.set('page', String(n));
   }
+  // The calendar's month rides along, so paging the table below does not snap the grid
+  // back to today.
+  if (month !== todayKey.slice(0, 7)) {
+    params.set('month', month);
+  }
   const query = params.toString();
   return query ? `/events?${query}` : '/events';
 }
 
 const now = new Date();
+
+// --- Calendar ---------------------------------------------------------------------
+//
+// A second view of the list above, not a second fetch: the service returns every
+// future event in one call, so the whole grid is already in `events`.
+
+const MONTH_PARAM = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+// The guild's today, not the container's. A raid at 21:00 in Prague on the 31st is
+// still the 31st to the raid lead reading this, and a server thinking in UTC would
+// file it under the 1st.
+const todayKey =
+  instantToGuildTime(now.toISOString(), timezone).slice(0, 10) || now.toISOString().slice(0, 10);
+
+const requestedMonth = Astro.url.searchParams.get('month') ?? '';
+const month = MONTH_PARAM.test(requestedMonth) ? requestedMonth : todayKey.slice(0, 7);
+const monthYear = Number(month.slice(0, 4));
+const monthNumber = Number(month.slice(5, 7));
+
+/** The month `delta` months from the one on screen, named. */
+function monthLabel(delta: number): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(monthYear, monthNumber - 1 + delta, 1)));
+}
+
+function monthHref(delta: number): string {
+  return `/events?month=${new Date(Date.UTC(monthYear, monthNumber - 1 + delta, 1))
+    .toISOString()
+    .slice(0, 7)}`;
+}
+
+/** Just the clock. A cell this narrow has no room for the date and the zone as well. */
+function guildClock(iso: string): string {
+  return instantToGuildTime(iso, timezone).slice(11, 16);
+}
+
+// Monday first. A raid week runs Tuesday to Sunday, and a Sunday-first grid cuts it in
+// half across two rows.
+const WEEKDAYS: [string, string][] = [
+  ['Mon', 'Monday'],
+  ['Tue', 'Tuesday'],
+  ['Wed', 'Wednesday'],
+  ['Thu', 'Thursday'],
+  ['Fri', 'Friday'],
+  ['Sat', 'Saturday'],
+  ['Sun', 'Sunday'],
+];
+
+interface CalendarDay {
+  key: string;
+  date: number;
+  inMonth: boolean;
+}
+
+const leading = (new Date(Date.UTC(monthYear, monthNumber - 1, 1)).getUTCDay() + 6) % 7;
+const monthLength = new Date(Date.UTC(monthYear, monthNumber, 0)).getUTCDate();
+
+const weeks: CalendarDay[][] = [];
+for (let cell = 0; cell < Math.ceil((leading + monthLength) / 7) * 7; cell += 7) {
+  weeks.push(
+    Array.from({ length: 7 }, (_, offset) => {
+      const day = new Date(Date.UTC(monthYear, monthNumber - 1, 1 - leading + cell + offset));
+      return {
+        key: day.toISOString().slice(0, 10),
+        date: day.getUTCDate(),
+        inMonth: day.getUTCMonth() === monthNumber - 1,
+      };
+    }),
+  );
+}
+
+// Left in the order the service sent, so two raids on one night stack in start order
+// without this repo deciding that for itself.
+const byDay = new Map<string, Event[]>();
+for (const event of events) {
+  const key = instantToGuildTime(event.starts_at, timezone).slice(0, 10);
+  if (!key) {
+    continue;
+  }
+  const onDay = byDay.get(key);
+  if (onDay) {
+    onDay.push(event);
+  } else {
+    byDay.set(key, [event]);
+  }
+}
 ---
 
 <DashboardLayout title="Events">
@@ -224,6 +324,85 @@ const now = new Date();
       </div>
     )
   }
+
+  {
+    /* Upcoming only. The past list is read newest-first as a log, and a month grid is
+      the wrong shape for that. */
+  }
+  {
+    !past && !failure && events.length > 0 && (
+      <section class="section">
+        <div class="calendar__head">
+          <h2>Calendar</h2>
+          <nav class="calendar__nav" aria-label="Calendar month">
+            <a href={monthHref(-1)} rel="prev" aria-label={`Previous month, ${monthLabel(-1)}`}>
+              <span aria-hidden="true">&lsaquo;</span>
+            </a>
+            <span class="calendar__month">{monthLabel(0)}</span>
+            <a href={monthHref(1)} rel="next" aria-label={`Next month, ${monthLabel(1)}`}>
+              <span aria-hidden="true">&rsaquo;</span>
+            </a>
+          </nav>
+        </div>
+
+        <div class="panel">
+          <table class="calendar">
+            <caption class="visually-hidden">Upcoming raids in {monthLabel(0)}</caption>
+            <thead>
+              <tr>
+                {WEEKDAYS.map(([short, full]) => (
+                  <th scope="col">
+                    <abbr title={full}>{short}</abbr>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {weeks.map((week) => (
+                <tr>
+                  {week.map((day) => (
+                    <td
+                      class:list={[
+                        'day',
+                        !day.inMonth && 'day--adjacent',
+                        /* A day already gone holds no upcoming raid by definition. Dimmed
+                           so an empty cell reads as "not this list" rather than as "no
+                           raid ran". */
+                        day.key < todayKey && 'day--gone',
+                      ]}
+                      aria-current={day.key === todayKey ? 'date' : undefined}
+                    >
+                      <span class="day__date">{day.date}</span>
+                      {(byDay.get(day.key) ?? []).map((event) => {
+                        const hue = event.difficulty ? DIFFICULTY_HUES[event.difficulty] : null;
+                        return (
+                          <a
+                            class:list={['pill', hue && 'pill--hue']}
+                            style={hue ? `--hue: ${hue}` : undefined}
+                            href={`/events/${event.id}`}
+                          >
+                            <span class="pill__time">{guildClock(event.starts_at)}</span>
+                            <span class="pill__title">{event.title}</span>
+                            {/* Confirmed only. The service sends every status and
+                                deliberately no total, because which of them reads as
+                                "coming" depends on what is being drawn: a calendar cell
+                                is asking how many are actually turning up. */}
+                            {event.signup_counts?.CONFIRMED !== undefined && (
+                              <span class="pill__count">{event.signup_counts.CONFIRMED}</span>
+                            )}
+                          </a>
+                        );
+                      })}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    )
+  }
 </DashboardLayout>
 
 <style>
@@ -348,6 +527,168 @@ const now = new Date();
     white-space: nowrap;
   }
 
+  /* ------------------------------------------------------------------- calendar */
+
+  .calendar__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 0.875rem;
+  }
+
+  /* .section > h2 already spaces the heading; the flex row owns it here instead. */
+  .calendar__head h2 {
+    margin-bottom: 0;
+  }
+
+  .calendar__nav {
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+  }
+
+  .calendar__nav a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: var(--fs-lg);
+    line-height: 1;
+    text-decoration: none;
+    transition:
+      color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
+  }
+
+  .calendar__nav a:hover {
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+
+  .calendar__month {
+    min-width: 9ch;
+    color: var(--text-primary);
+    font-size: var(--fs-md);
+    font-weight: 560;
+    text-align: center;
+  }
+
+  .calendar {
+    table-layout: fixed;
+  }
+
+  .calendar thead th {
+    padding: 0.5rem 0.5rem;
+    text-align: center;
+  }
+
+  .calendar thead abbr {
+    text-decoration: none;
+  }
+
+  /* A calendar cell is a container, not a row of data: the global row hover and the
+     generous table padding both read wrong at this size. */
+  .calendar tbody tr:hover {
+    background: none;
+  }
+
+  .calendar tbody td {
+    height: 6.5rem;
+    padding: 0.375rem;
+    border-right: 1px solid var(--border-subtle);
+    vertical-align: top;
+  }
+
+  .calendar tbody td:last-child {
+    border-right: 0;
+  }
+
+  .day__date {
+    display: block;
+    margin-bottom: 0.25rem;
+    padding-inline: 0.125rem;
+    color: var(--text-secondary);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .day--adjacent,
+  .day--gone {
+    background: color-mix(in srgb, var(--ground) 45%, transparent);
+  }
+
+  .day--adjacent .day__date,
+  .day--gone .day__date {
+    color: var(--text-tertiary);
+  }
+
+  /* Today is where a raid lead's eye lands first, so it gets the one warm colour. */
+  .calendar td[aria-current='date'] .day__date {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.375rem;
+    height: 1.375rem;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-weight: 600;
+  }
+
+  .pill {
+    display: flex;
+    gap: 0.375rem;
+    align-items: baseline;
+    padding: 0.1875rem 0.375rem;
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--raised);
+    color: var(--text-primary);
+    font-size: var(--fs-xs);
+    text-decoration: none;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
+  }
+
+  .pill + .pill {
+    margin-top: 0.1875rem;
+  }
+
+  .pill:hover {
+    background: var(--hover);
+    border-color: var(--border-strong);
+  }
+
+  .pill--hue {
+    border-left-color: var(--hue);
+  }
+
+  .pill__time {
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pill__title {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .pill__count {
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+
   /* No table scrolls sideways on a phone. Each row becomes a stacked block with its
      column names inline. */
   @media (max-width: 44rem) {
@@ -389,6 +730,73 @@ const now = new Date();
     .closes-at {
       display: inline;
       margin-left: 0.375rem;
+    }
+
+    /* Everything above restructures the events table into stacked blocks. A calendar is
+       seven columns or it is not a calendar, so it opts back out of all of it and drops
+       to one dot per raid instead. */
+    .calendar thead {
+      display: table-header-group;
+    }
+
+    .calendar thead th {
+      padding: 0.375rem 0.125rem;
+    }
+
+    .calendar tbody tr {
+      display: table-row;
+      gap: 0;
+      padding: 0;
+      border-bottom: 0;
+    }
+
+    .calendar tbody td {
+      display: table-cell;
+      height: 3.75rem;
+      padding: 0.25rem 0.125rem;
+      border-right: 1px solid var(--border-subtle);
+      text-align: center;
+    }
+
+    .calendar tbody td:last-child {
+      border-right: 0;
+    }
+
+    .day__date,
+    .calendar td[aria-current='date'] .day__date {
+      margin-inline: auto;
+    }
+
+    /* The time and the title stay in the accessible name, so the dot is still a link a
+       screen reader can announce in full. */
+    .pill {
+      display: inline-flex;
+      width: 6px;
+      height: 6px;
+      padding: 0;
+      border: 0;
+      border-radius: var(--radius-full);
+      background: var(--border-strong);
+    }
+
+    .pill--hue {
+      background: var(--hue);
+    }
+
+    .pill + .pill {
+      margin-top: 0;
+      margin-left: 3px;
+    }
+
+    .pill__time,
+    .pill__title,
+    .pill__count {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
     }
   }
 </style>
