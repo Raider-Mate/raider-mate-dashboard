@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 
 import { getLink } from '../../../lib/links';
+import { ServiceError } from '../../../lib/service-error';
 import { noticeCodeFor } from '../../../lib/service-notice';
 import type { Character, Event, Signup } from '../../../lib/service-types';
 
@@ -67,6 +68,11 @@ export const POST: APIRoute = async ({ request, params, locals, redirect }) => {
     // asked for. Reporting it as done would have them turn up to a raid they are not on.
     return back(written.status === 202 ? 'late' : undefined);
   } catch (error) {
+    // The service refuses a signup change once the raid has begun, and that is not a
+    // failure worth an apology: the answer is simply final now.
+    if (error instanceof ServiceError && error.isConflict) {
+      return back('started');
+    }
     return back(noticeCodeFor(error));
   }
 };

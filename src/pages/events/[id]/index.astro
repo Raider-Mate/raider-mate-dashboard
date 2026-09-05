@@ -1,6 +1,8 @@
 ---
 import CompAdvisories from '../../../components/comp-advisories.astro';
 import EventChips from '../../../components/event-chips.astro';
+import MeterBoard, { type Metric } from '../../../components/meter-board.astro';
+import PullTimeline from '../../../components/pull-timeline.astro';
 import DashboardLayout from '../../../layouts/dashboard-layout.astro';
 import { DIFFICULTY_LABELS } from '../../../lib/difficulty';
 import {
@@ -21,7 +23,9 @@ import type {
   Character,
   CompInfo,
   Event,
+  EventReport,
   LateRequest,
+  ReportFight,
   ReminderDelivery,
   Role,
   Signup,
@@ -44,6 +48,7 @@ const NOTICES: Record<string, string> = {
   late: 'Signups have closed. A raid lead has to approve that.',
   denied: 'That is not yours to change.',
   gone: 'That character is no longer on this event.',
+  started: 'That raid has already started, so the sheet is final.',
   badlog:
     'That is not a WarcraftLogs report link. It should look like https://www.warcraftlogs.com/reports/aBcD1234.',
   failed: 'Raider Mate had a problem with that.',
@@ -55,6 +60,7 @@ const NOTICES: Record<string, string> = {
   approved: 'Approved. They are on the sheet.',
   rejected: 'Rejected. Nothing on the sheet changed.',
   decided: 'Someone answered that one already.',
+  rereading: 'Reading the report again. The numbers follow.',
 };
 const code = Astro.url.searchParams.get('notice') ?? '';
 const notice = NOTICES[code];
@@ -115,6 +121,106 @@ if (event) {
 // The link is what the service offered; warcraftlogs_url is the same string on the
 // resource. Reading the link keeps this rendering from what was handed over.
 const logsUrl = event ? getLink(event, 'warcraftlogs')?.href : undefined;
+
+/*
+ * What the log said, once the service has read it.
+ *
+ * Three rels, exactly one of them present, and the rel name is the state: `report` has
+ * numbers, `report-pending` means Raider Mate is still reading, `report-failed` means it
+ * could not. None of them means this instance has no WarcraftLogs credentials, and the
+ * page keeps the plain outbound link it has always had.
+ */
+const reportLink = event ? getLink(event, 'report') : undefined;
+const reportPending = event ? hasLink(event, 'report-pending') : false;
+const reportFailed = event ? hasLink(event, 'report-failed') : false;
+
+let report: EventReport | null = null;
+if (event && reportLink) {
+  try {
+    report = (await client.follow<EventReport>(actor, reportLink)).body;
+  } catch {
+    // The event reads fine without it. A page that blanks because one panel failed is
+    // worse than a page missing that panel.
+    report = null;
+  }
+}
+
+// Which board is on screen. A real link per metric, like the analysis sort: no script,
+// and a filtered view is a URL a raid lead can paste into Discord.
+const METRICS: Metric[] = ['damage', 'healing', 'deaths'];
+const requestedMetric = Astro.url.searchParams.get('metric');
+const metric: Metric = METRICS.includes(requestedMetric as Metric)
+  ? (requestedMetric as Metric)
+  : 'damage';
+
+const METRIC_LABELS: Record<Metric, string> = {
+  damage: 'Damage',
+  healing: 'Healing',
+  deaths: 'Deaths',
+};
+
+/*
+ * Which pull the board is showing, or the whole night.
+ *
+ * The service sends every pull's numbers with the report, so selecting one costs a render
+ * and no request. It is still a query parameter rather than script: a pull worth arguing
+ * about is a URL worth pasting into Discord.
+ */
+const requestedFight = Number.parseInt(Astro.url.searchParams.get('fight') ?? '', 10);
+const selectedFight = report?.fights.find((fight) => fight.fight_id === requestedFight) ?? null;
+
+/**
+ * Which pull this is on its own boss, counting from one.
+ *
+ * Not its place in the night: the cards above number pulls within a boss, and a board
+ * calling the same pull "pull 7" while the card beside it says "Pull 2" would be two
+ * names for one thing.
+ */
+function pullOrdinal(fight: ReportFight): number {
+  // Counts back through the run of pulls immediately before this one on the same boss,
+  // and stops at anything else. The cards group by consecutive run for the same reason: a
+  // guild that comes back to a boss later had two runs at it, not one long one.
+  const all = report?.fights ?? [];
+  const at = all.indexOf(fight);
+  let ordinal = 1;
+  for (let before = at - 1; before >= 0; before -= 1) {
+    if (all[before]!.encounter !== fight.encounter) {
+      break;
+    }
+    ordinal += 1;
+  }
+  return ordinal;
+}
+
+/** Where the board points, keeping whatever it is not changing. */
+function boardHref(next: { metric?: Metric; fight?: number | null }): string {
+  const params = new URLSearchParams();
+  const wanted = next.metric ?? metric;
+  if (wanted !== 'damage') {
+    params.set('metric', wanted);
+  }
+  const fight = next.fight === undefined ? (selectedFight?.fight_id ?? null) : next.fight;
+  if (fight !== null) {
+    params.set('fight', String(fight));
+  }
+  const query = params.toString();
+  return `/events/${eventId}${query ? `?${query}` : ''}#board`;
+}
+
+/**
+ * What the service could not read, said in one sentence with the way out of it. The
+ * status names the problem; the recovery is the raid lead's, not ours.
+ */
+const REPORT_TROUBLE: Record<string, string> = {
+  PRIVATE:
+    'WarcraftLogs will not show this report to Raider Mate. Set it to Unlisted on the report page and this fills in on the next check.',
+  NOT_FOUND: 'WarcraftLogs has no report at that link. Check it and paste it again.',
+  ARCHIVED: 'WarcraftLogs has archived this report, so the numbers behind it are gone.',
+  UNAVAILABLE: 'WarcraftLogs is not answering. Raider Mate will try again.',
+};
+
+// The page flips once there are numbers. Before that it is the page it has always been.
+const flipped = report !== null && report.status === 'READY';
 
 const signedUp = new Set(signups.map((signup) => signup.character_id));
 // Main first, since it is the character most people are signing up: everyone else
@@ -313,10 +419,190 @@ function templateSize(field: string): number | '' {
                   </button>
                 </form>
               )}
+              {/* Only where the service offered it. A report is read once and left
+                  alone, so this is for the night WarcraftLogs was down, or the report
+                  that has just stopped being private. */}
+              {hasLink(event, 'refresh-report') && (
+                <form method="post" action={`/events/${event.id}/report-refresh`} data-astro-reload>
+                  <button class="button button--ghost" type="submit">
+                    Read it again
+                  </button>
+                </form>
+              )}
             </div>
           </details>
         )}
       </div>
+    )
+  }
+
+  {
+    /* Raider Mate is reading the report. One line, because the wait is minutes and a
+       full panel promising numbers is worse than a sentence saying they are coming. */
+    reportPending && (
+      <p class="reminder">Raider Mate is reading the report. Numbers land here shortly.</p>
+    )
+  }
+
+  {
+    reportFailed && report && (
+      <p class="notice">{REPORT_TROUBLE[report.status] ?? REPORT_TROUBLE.UNAVAILABLE}</p>
+    )
+  }
+
+  {
+    flipped && report && event && (
+      <>
+        {report.live && (
+          <p class="reminder">
+            This raid is still going, so the numbers below are real but not final.
+          </p>
+        )}
+
+        {/* No panel around it. The boss cards are the cards; wrapping them in another
+            one would nest a card inside a card, which this system does not do. */}
+        <section class="section">
+          <h2>The night</h2>
+          {report.fights.length > 0 ? (
+            <PullTimeline
+              fights={report.fights}
+              url={report.url}
+              selected={selectedFight?.fight_id ?? null}
+              href={(fight) => boardHref({ fight })}
+            />
+          ) : (
+            <div class="panel">
+              <div class="panel__body">
+                <p class="muted">The report has no boss pulls in it.</p>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {report.raiders.length > 0 && (
+          <section class="panel recap-panel" id="board">
+            <div class="panel__head">
+              <div class="board-head">
+                <h2>{METRIC_LABELS[metric]}</h2>
+                {/* What the numbers below are of. A pull that WarcraftLogs was not read
+                    individually for falls back to the night rather than showing nothing,
+                    and says so. */}
+                <p class="board-head__scope">
+                  {selectedFight
+                    ? selectedFight.raiders
+                      ? `${selectedFight.encounter}, pull ${pullOrdinal(selectedFight)}`
+                      : `${selectedFight.encounter}: this pull was not read on its own`
+                    : 'The whole night'}
+                </p>
+              </div>
+              <nav class="metrics" aria-label="Metric">
+                {METRICS.map((option) => (
+                  <a
+                    class="metrics__link"
+                    href={boardHref({ metric: option })}
+                    aria-current={option === metric ? 'page' : undefined}
+                  >
+                    {METRIC_LABELS[option]}
+                  </a>
+                ))}
+              </nav>
+            </div>
+            <div class="panel__body">
+              {selectedFight && (
+                <a class="board-reset" href={boardHref({ fight: null })}>
+                  Back to the whole night
+                </a>
+              )}
+              <MeterBoard
+                raiders={selectedFight?.raiders ?? report.raiders}
+                metric={metric}
+                mine={mineIds}
+              />
+            </div>
+          </section>
+        )}
+
+        <section class="section">
+          <h2>Who showed</h2>
+          {report.turnout.roster_overlap < 0.34 && report.raiders.length > 0 && (
+            <p class="notice">
+              Hardly anybody in this report is on your roster. It may belong to a different night.
+            </p>
+          )}
+          <div class="panel">
+            <div class="panel__body turnout">
+              <div>
+                <h3 class="turnout__head">Turned up</h3>
+                {report.turnout.attended.length > 0 ? (
+                  <ul class="turnout__list">
+                    {report.turnout.attended.map((raider) => (
+                      <li>
+                        <span
+                          class="turnout__mark"
+                          style={`background: ${classColor(raider.class) ?? 'var(--border-strong)'}`}
+                          aria-hidden="true"
+                        />
+                        {raider.name}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p class="muted">Nobody in the log matched the roster.</p>
+                )}
+              </div>
+
+              <div>
+                <h3 class="turnout__head">Said yes, never appeared</h3>
+                {report.turnout.missing.length > 0 ? (
+                  <>
+                    <ul class="turnout__list">
+                      {report.turnout.missing.map((raider) => (
+                        <li>
+                          <span
+                            class="turnout__mark"
+                            style={`background: ${classColor(raider.class) ?? 'var(--border-strong)'}`}
+                            aria-hidden="true"
+                          />
+                          {raider.name}
+                        </li>
+                      ))}
+                    </ul>
+                    <p class="turnout__why">
+                      They may have swapped character or arrived after the log started.
+                    </p>
+                  </>
+                ) : (
+                  <p class="muted">Everyone who said yes is in the log.</p>
+                )}
+              </div>
+
+              <div>
+                <h3 class="turnout__head">In the log, not on the roster</h3>
+                {report.turnout.unknown.length > 0 ? (
+                  <>
+                    <ul class="turnout__list">
+                      {report.turnout.unknown.map((raider) => (
+                        <li>
+                          <span
+                            class="turnout__mark"
+                            style={`background: ${classColor(raider.class) ?? 'var(--border-strong)'}`}
+                            aria-hidden="true"
+                          />
+                          {raider.name}
+                          <span class="turnout__realm">{raider.realm}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p class="turnout__why">A pug, a trial, or a character nobody has synced.</p>
+                  </>
+                ) : (
+                  <p class="muted">Everyone in the log is on the roster.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </section>
+      </>
     )
   }
 
@@ -437,7 +723,11 @@ function templateSize(field: string): number | '' {
   {
     event && (
       <>
-        {unsigned.length > 0 && (
+        {/* Not once the log has been read. The raid happened; offering to sign up for it
+            is a control that can only be refused. This is the service's answer being
+            read back, not a rule invented here: the report link is what says the night
+            is over, never a clock. */}
+        {unsigned.length > 0 && !flipped && (
           <section class="section signup">
             <h2>Sign up</h2>
             {/* No signup row yet, so there is no allowed_statuses to render from, and
@@ -465,11 +755,15 @@ function templateSize(field: string): number | '' {
           </section>
         )}
 
-        {
-          /* The comp is what a raid lead opens this page for, so it leads. Before it is
+        {/* The comp is what a raid lead opens this page for, so it leads. Before it is
              locked there is nothing to show, and a full empty panel would push the
-             signups a screen down to say so: one line does the same job. */
-          boards.length === 0 ? (
+             signups a screen down to say so: one line does the same job.
+
+             Once the log has been read the comp is history: what was planned, beside
+             what happened. It keeps every control it had, one disclosure down. */}
+        <details class:list={['demoted', !flipped && 'demoted--plain']} open={!flipped}>
+          <summary>The comp</summary>
+          {boards.length === 0 ? (
             <p class="pending">
               <span class="pending__dot" aria-hidden="true" />
               No comp locked yet. A raid lead locks it from Discord, and it lands here.
@@ -624,10 +918,14 @@ function templateSize(field: string): number | '' {
                 </div>
               ))}
             </section>
-          )
-        }
+          )}
+        </details>
 
-        {hasLink(event, 'late-requests') && (
+        {/* Not once the log has been read. A late request is a plea to be let onto a raid,
+            and approving one after the raid happened changes nothing that can still be
+            changed. Same signal as the signup form: the report link is what says the
+            night is over, never a clock. */}
+        {hasLink(event, 'late-requests') && !flipped && (
           <section class="section">
             <h2>Late requests</h2>
             {lateRequests.length === 0 && (
@@ -696,152 +994,364 @@ function templateSize(field: string): number | '' {
           </section>
         )}
 
-        <section class="panel signups">
-          <div class="panel__head">
-            <h2>Signups</h2>
-            {signups.length > 0 && <span class="badge">{signups.length} signed up</span>}
-          </div>
-
-          {signups.length === 0 && (
-            <div class="empty">
-              <h3>Nobody has signed up yet</h3>
-              <p>Raiders sign up from the event post in Discord, or from here.</p>
+        {/* Same demotion as the comp, and for the same reason: after the raid the sheet
+             is what people said they would do, not what they did. */}
+        <details class:list={['demoted', !flipped && 'demoted--plain']} open={!flipped}>
+          <summary>Signups</summary>
+          <section class="panel signups">
+            <div class="panel__head">
+              <h2>Signups</h2>
+              {signups.length > 0 && <span class="badge">{signups.length} signed up</span>}
             </div>
-          )}
 
-          {shown.length > 0 && (
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">Raider</th>
-                    <th scope="col" class="num">
-                      Item level
-                    </th>
-                    <th scope="col">Status</th>
-                    <th scope="col">Note</th>
-                    <th scope="col">
-                      <span class="visually-hidden">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.map((signup) => (
-                    <tr class:list={[isMine(signup) && 'row--mine']}>
-                      <th scope="row">
-                        <span class="raider">
-                          <span
-                            class="raider__mark"
-                            style={`background: ${classColor(signup.character?.class) ?? 'var(--border-strong)'}`}
-                            aria-hidden="true"
-                          />
-                          <span>
-                            <span class="raider__name">
-                              {signup.character?.name ?? signup.character_id}
-                              {isMine(signup) && <span class="yours">You</span>}
-                            </span>
-                            <span class="raider__sub">
-                              {signup.character?.class ?? ''}
-                              {signup.character?.spec ? ` ${signup.character.spec}` : ''}
-                              {signup.character && signup.character.roles.length > 0 && (
-                                <>
-                                  {signup.character.class || signup.character.spec ? ' · ' : ''}
-                                  {signup.character.roles.map((choice) => choice.role).join(' / ')}
-                                </>
-                              )}
+            {signups.length === 0 && (
+              <div class="empty">
+                <h3>Nobody has signed up yet</h3>
+                <p>Raiders sign up from the event post in Discord, or from here.</p>
+              </div>
+            )}
+
+            {shown.length > 0 && (
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">Raider</th>
+                      <th scope="col" class="num">
+                        Item level
+                      </th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Note</th>
+                      <th scope="col">
+                        <span class="visually-hidden">Actions</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {shown.map((signup) => (
+                      <tr class:list={[isMine(signup) && 'row--mine']}>
+                        <th scope="row">
+                          <span class="raider">
+                            <span
+                              class="raider__mark"
+                              style={`background: ${classColor(signup.character?.class) ?? 'var(--border-strong)'}`}
+                              aria-hidden="true"
+                            />
+                            <span>
+                              <span class="raider__name">
+                                {signup.character?.name ?? signup.character_id}
+                                {isMine(signup) && <span class="yours">You</span>}
+                              </span>
+                              <span class="raider__sub">
+                                {signup.character?.class ?? ''}
+                                {signup.character?.spec ? ` ${signup.character.spec}` : ''}
+                                {signup.character && signup.character.roles.length > 0 && (
+                                  <>
+                                    {signup.character.class || signup.character.spec ? ' · ' : ''}
+                                    {signup.character.roles
+                                      .map((choice) => choice.role)
+                                      .join(' / ')}
+                                  </>
+                                )}
+                              </span>
                             </span>
                           </span>
-                        </span>
-                      </th>
-                      {/* Whole numbers: the fraction the sync stores is precision nobody
+                        </th>
+                        {/* Whole numbers: the fraction the sync stores is precision nobody
                           picks a raider on. Absent until the Raider.IO worker has been
                           round, which is a different fact from a low one. */}
-                      <td class="num ilvl">
-                        {signup.character?.ilvl ? (
-                          Math.round(signup.character.ilvl)
-                        ) : (
-                          <span class="dash">&mdash;</span>
-                        )}
-                      </td>
-                      <td>
-                        <span
-                          class="badge badge--hue"
-                          style={`--hue: ${STATUS_HUES[signup.status]}`}
-                        >
-                          <span class="badge__dot" />
-                          {STATUS_LABELS[signup.status]}
-                        </span>
-                        {signup.late_until && (
-                          <span class="until">
-                            until{' '}
-                            <time datetime={signup.late_until}>
-                              {formatEventTime(signup.late_until, timezone)}
-                            </time>
+                        <td class="num ilvl">
+                          {signup.character?.ilvl ? (
+                            Math.round(signup.character.ilvl)
+                          ) : (
+                            <span class="dash">&mdash;</span>
+                          )}
+                        </td>
+                        <td>
+                          <span
+                            class="badge badge--hue"
+                            style={`--hue: ${STATUS_HUES[signup.status]}`}
+                          >
+                            <span class="badge__dot" />
+                            {STATUS_LABELS[signup.status]}
                           </span>
-                        )}
-                      </td>
-                      <td class="note">{signup.note}</td>
+                          {signup.late_until && (
+                            <span class="until">
+                              until{' '}
+                              <time datetime={signup.late_until}>
+                                {formatEventTime(signup.late_until, timezone)}
+                              </time>
+                            </span>
+                          )}
+                        </td>
+                        <td class="note">{signup.note}</td>
 
-                      {/* Rendered from allowed_statuses and the links, and from nothing
+                        {/* Rendered from allowed_statuses and the links, and from nothing
                           else. Both absent means this caller cannot act on this signup. */}
-                      <td class="controls">
-                        <div class="controls__inner">
-                          {signup.allowed_statuses && signup.allowed_statuses.length > 0 && (
-                            <form
-                              method="post"
-                              action={`/events/${event.id}/signup`}
-                              data-astro-reload
-                            >
-                              <input
-                                type="hidden"
-                                name="character_id"
-                                value={signup.character_id}
-                              />
-                              {signup.allowed_statuses.map((status) => (
-                                <button
-                                  class="button button--quiet"
-                                  type="submit"
-                                  name="status"
-                                  value={status}
-                                  aria-pressed={status === signup.status}
-                                  style={`--hue: ${STATUS_HUES[status]}`}
-                                >
-                                  {STATUS_LABELS[status]}
+                        <td class="controls">
+                          <div class="controls__inner">
+                            {signup.allowed_statuses && signup.allowed_statuses.length > 0 && (
+                              <form
+                                method="post"
+                                action={`/events/${event.id}/signup`}
+                                data-astro-reload
+                              >
+                                <input
+                                  type="hidden"
+                                  name="character_id"
+                                  value={signup.character_id}
+                                />
+                                {signup.allowed_statuses.map((status) => (
+                                  <button
+                                    class="button button--quiet"
+                                    type="submit"
+                                    name="status"
+                                    value={status}
+                                    aria-pressed={status === signup.status}
+                                    style={`--hue: ${STATUS_HUES[status]}`}
+                                  >
+                                    {STATUS_LABELS[status]}
+                                  </button>
+                                ))}
+                              </form>
+                            )}
+                            {hasLink(signup, 'withdraw') && (
+                              <form
+                                method="post"
+                                action={`/events/${event.id}/withdraw`}
+                                data-astro-reload
+                              >
+                                <input
+                                  type="hidden"
+                                  name="character_id"
+                                  value={signup.character_id}
+                                />
+                                <button class="button button--ghost" type="submit">
+                                  Withdraw
                                 </button>
-                              ))}
-                            </form>
-                          )}
-                          {hasLink(signup, 'withdraw') && (
-                            <form
-                              method="post"
-                              action={`/events/${event.id}/withdraw`}
-                              data-astro-reload
-                            >
-                              <input
-                                type="hidden"
-                                name="character_id"
-                                value={signup.character_id}
-                              />
-                              <button class="button button--ghost" type="submit">
-                                Withdraw
-                              </button>
-                            </form>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+                              </form>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </details>
       </>
     )
   }
 </DashboardLayout>
 
 <style>
+  /*
+   * The disclosure the comp and the signups move into once the log has been read.
+   *
+   * Rendered either way rather than conditionally wrapped, because a summary that exists
+   * only sometimes would mean two copies of everything inside it. Before the flip it is
+   * open with its summary hidden, which is exactly the page that was there before.
+   */
+  .demoted {
+    margin-top: 2.5rem;
+  }
+
+  .demoted--plain {
+    margin-top: 0;
+  }
+
+  .demoted--plain > summary {
+    display: none;
+  }
+
+  /*
+   * A section heading you can fold, not a button.
+   *
+   * It was a small chip first, which read as a stray control floating under whatever was
+   * above it: nothing said it introduced a section, and at that size the marker was a
+   * speck. It carries the heading's own type now and rules off the full width, so it
+   * reads as the head of the block it opens.
+   */
+  .demoted > summary {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0 0 0.625rem;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--fs-lg);
+    font-weight: 600;
+    letter-spacing: -0.014em;
+    list-style: none;
+    transition: color var(--dur-1) var(--ease);
+  }
+
+  .demoted > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .demoted > summary::after {
+    margin-left: auto;
+    color: var(--text-tertiary);
+    content: 'Show';
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.01em;
+  }
+
+  .demoted[open] > summary::after {
+    content: 'Hide';
+  }
+
+  /* Rotates rather than swapping glyph, so the marker moves with the disclosure instead
+     of blinking into a different character. */
+  .demoted > summary::before {
+    content: '';
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 6px solid currentColor;
+    transition: transform var(--dur-1) var(--ease);
+  }
+
+  .demoted[open] > summary::before {
+    transform: rotate(90deg);
+  }
+
+  .demoted > summary:hover {
+    color: var(--text-primary);
+  }
+
+  /* The board sits under the night with no heading between them, so it needs the space a
+     section heading would otherwise have carried. */
+  .recap-panel {
+    margin-top: 2.5rem;
+  }
+
+  .board-head {
+    display: grid;
+    gap: 0.125rem;
+    min-width: 0;
+  }
+
+  /* What the numbers are of. Under the metric rather than beside it, because the metric
+     is what you picked and this is what you picked it on. */
+  .board-head__scope {
+    margin: 0;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  .board-reset {
+    display: inline-block;
+    margin-bottom: 0.75rem;
+    color: var(--text-secondary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    text-decoration: none;
+    transition: color var(--dur-1) var(--ease);
+  }
+
+  .board-reset::before {
+    content: '\2190';
+    margin-right: 0.375rem;
+  }
+
+  .board-reset:hover,
+  .board-reset:focus-visible {
+    color: var(--text-primary);
+  }
+
+  /* The three views of one board. Same grammar as the analysis sub-navigation: real
+     links, current one marked, no second idea invented for the same job. */
+  .metrics {
+    display: flex;
+    gap: 0.25rem;
+  }
+
+  .metrics__link {
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    text-decoration: none;
+    transition:
+      background var(--dur-1) var(--ease),
+      color var(--dur-1) var(--ease);
+  }
+
+  .metrics__link:hover {
+    background: var(--hover);
+    color: var(--text-primary);
+  }
+
+  .metrics__link[aria-current='page'] {
+    background: var(--raised);
+    color: var(--text-primary);
+  }
+
+  .turnout {
+    display: grid;
+    gap: 1.5rem 2.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr));
+  }
+
+  .turnout > * {
+    min-width: 0;
+  }
+
+  .turnout__head {
+    margin: 0 0 0.625rem;
+    color: var(--text-secondary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .turnout__list {
+    display: grid;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .turnout__list li {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    font-size: var(--fs-sm);
+  }
+
+  .turnout__mark {
+    width: 3px;
+    height: 0.8125rem;
+    flex: none;
+    border-radius: var(--radius-full);
+    transform: translateY(2px);
+  }
+
+  .turnout__realm {
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  /* Said once, under the list it belongs to. A no-show list that accuses people is worse
+     than no list, and both of these have innocent explanations. */
+  .turnout__why {
+    max-width: 46ch;
+    margin: 0.625rem 0 0;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
   /* Everyone reads a long table looking for their own name first. Pinning the row is
      half of it; the other half is making it findable without reading. */
   .row--mine th,

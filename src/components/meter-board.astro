@@ -1,0 +1,211 @@
+---
+import type { ReportRaider } from '../lib/service-types';
+import { classColor } from '../lib/wow-class';
+
+export type Metric = 'damage' | 'healing' | 'deaths';
+
+interface Props {
+  raiders: ReportRaider[];
+  metric: Metric;
+  /** Character ids belonging to the viewer, so their own row reads as theirs. */
+  mine: ReadonlySet<string>;
+}
+
+const { raiders, metric, mine } = Astro.props;
+
+const valueOf = (raider: ReportRaider): number => raider[metric];
+
+// Sorted here rather than in the template, so the stagger index follows what is on
+// screen. The service sends damage order; the other two metrics are a reordering of the
+// same rows, not a second request.
+const rows = [...raiders].sort((a, b) => valueOf(b) - valueOf(a) || a.name.localeCompare(b.name));
+
+// The widest bar on the board. Bar geometry, not a statistic: this is the same division
+// proportion-bar already does to draw a share of a whole.
+const top = rows.length > 0 ? valueOf(rows[0]!) : 0;
+
+/**
+ * A big number as a raid lead reads it. Formatting what the service sent, never
+ * recomputing it.
+ */
+function compact(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+const STEP_MS = 38;
+const MAX_STEPS = 12;
+---
+
+<ol class="board">
+  {
+    rows.map((raider, index) => {
+      const value = valueOf(raider);
+      const isMine = raider.character_id !== undefined && mine.has(raider.character_id);
+      return (
+        <li
+          class:list={['row', isMine && 'row--mine']}
+          style={`--delay: ${Math.min(index, MAX_STEPS) * STEP_MS}ms`}
+        >
+          <span class="row__rank" aria-hidden="true">
+            {index + 1}
+          </span>
+
+          <span class="row__who">
+            <span
+              class="row__mark"
+              style={`background: ${classColor(raider.class) ?? 'var(--border-strong)'}`}
+              aria-hidden="true"
+            />
+            <span class="row__name">{raider.name}</span>
+            {/* A raider nobody on the roster answers to. Not an error: a pug, a trial,
+                or a character nobody has synced. */}
+            {raider.character_id === undefined && (
+              <span class="row__guest" title="Not on this guild's roster">
+                Guest
+              </span>
+            )}
+          </span>
+
+          {/* Deaths is a count of nought to a handful. A proportional bar across that
+              range says nothing a number does not, so it does not get one. */}
+          {metric !== 'deaths' && (
+            <span class="row__bar" aria-hidden="true">
+              <span class="row__fill" style={`--share: ${top > 0 ? (value / top) * 100 : 0}%`} />
+            </span>
+          )}
+
+          <span class="row__value">{metric === 'deaths' ? value : compact(value)}</span>
+        </li>
+      );
+    })
+  }
+</ol>
+
+<style>
+  .board {
+    display: grid;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .row {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: 1.5rem minmax(6rem, 14rem) minmax(0, 1fr) auto;
+    align-items: center;
+    padding: 0.3125rem 0.5rem;
+    border-radius: var(--radius-sm);
+    transition: background var(--dur-1) var(--ease);
+  }
+
+  .row:hover {
+    background: var(--hover);
+  }
+
+  /* The same treatment the signups table gives the viewer's own row, so the two read as
+     one page rather than two. */
+  .row--mine {
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .row__rank {
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .row__who {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    min-width: 0;
+  }
+
+  /* Class colour as a marker, never as text: several of Blizzard's thirteen cannot
+     carry text at 4.5:1 on this ground. */
+  .row__mark {
+    width: 3px;
+    height: 0.875rem;
+    flex: none;
+    border-radius: var(--radius-full);
+    transform: translateY(2px);
+  }
+
+  .row__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .row__guest {
+    flex: none;
+    padding: 1px 0.375rem;
+    border-radius: var(--radius-full);
+    background: var(--raised);
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+  }
+
+  .row__bar {
+    display: block;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--raised);
+    overflow: clip;
+  }
+
+  /*
+   * Drawn in from the left, a beat behind the row above, so the board assembles
+   * top-down. Same constants and the same curve as the analysis bars, because it is the
+   * same idea and a second timing would read as a second product.
+   */
+  .row__fill {
+    display: block;
+    width: var(--share, 0%);
+    height: 100%;
+    transform-origin: left center;
+    border-radius: inherit;
+    background: color-mix(in srgb, var(--text-secondary) 55%, transparent);
+    animation: board-fill 460ms cubic-bezier(0.33, 0.86, 0.44, 1) var(--delay, 0ms) both;
+  }
+
+  @keyframes board-fill {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+
+  .row__value {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .row__fill {
+      animation: none;
+    }
+  }
+
+  /* The bar is the first thing to go: a name and a number still compare, a two-centimetre
+     bar does not. */
+  @media (max-width: 44rem) {
+    .row {
+      grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+    }
+
+    .row__bar {
+      display: none;
+    }
+  }
+</style>

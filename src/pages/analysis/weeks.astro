@@ -1,0 +1,130 @@
+---
+import AnalysisNav from '../../components/analysis-nav.astro';
+import LockedPanel from '../../components/locked-panel.astro';
+import ThroughputChart from '../../components/throughput-chart.astro';
+import DashboardLayout from '../../layouts/dashboard-layout.astro';
+import { fetchAnalysisIndex, followPanel, panelFor } from '../../lib/analysis';
+import { noticeFor } from '../../lib/service-notice';
+import type { Throughput } from '../../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+const panel = panelFor('weeks');
+
+let throughput: Throughput | null = null;
+let failure: string | null = null;
+
+try {
+  const index = await fetchAnalysisIndex(client, actor, session!.selectedGuildId);
+  throughput = await followPanel<Throughput>(client, actor, index, panel.rel);
+} catch (error) {
+  failure = noticeFor(error);
+}
+---
+
+<DashboardLayout title={panel.title} titleTransition="analysis-weeks">
+  <p slot="head" class="muted">{panel.blurb}</p>
+
+  {
+    throughput && (
+      <span slot="actions" class="badge">
+        {throughput.since.slice(0, 10)} to {throughput.until.slice(0, 10)}
+      </span>
+    )
+  }
+
+  <AnalysisNav current="weeks" unlocked={throughput ? ['weeks'] : []} />
+
+  {failure && <p class="notice">{failure}</p>}
+
+  {!throughput && !failure && <LockedPanel title={panel.title} blurb={panel.blurb} />}
+
+  {
+    throughput && (
+      <section class="panel">
+        <div class="panel__body">
+          {throughput.weeks.length > 0 ? (
+            <>
+              <ThroughputChart weeks={throughput.weeks} window={throughput} />
+              <p class="chart-read">
+                <strong>{throughput.events}</strong> {throughput.events === 1 ? 'raid' : 'raids'}{' '}
+                over <strong>{throughput.weeks.length}</strong>{' '}
+                {throughput.weeks.length === 1 ? 'week' : 'weeks'}. Each bar counts raiders, not
+                signups, so somebody who came to both of a week's raids counts once.
+              </p>
+              <p class="legend">
+                <span class="legend__item">
+                  <span class="legend__key legend__key--bar" aria-hidden="true" />
+                  Confirmed
+                </span>
+                <span class="legend__item">
+                  <span class="legend__key legend__key--lost" aria-hidden="true" />
+                  Did not appear
+                </span>
+              </p>
+            </>
+          ) : (
+            <p class="muted">No raids in the last ninety days.</p>
+          )}
+        </div>
+      </section>
+    )
+  }
+</DashboardLayout>
+
+<style>
+  /* Same shape as the gear chart's read-out. A chart says the trend; this says the
+     number, and here it also says what one bar is, because a bar covering three raid
+     nights and a bar covering one look identical. */
+  .chart-read {
+    margin: 0.875rem 0 0;
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+  }
+
+  .chart-read strong {
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem 1.25rem;
+    align-items: center;
+    margin: 0.875rem 0 0;
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+  }
+
+  .legend__item {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+  }
+
+  /* Shaped like the mark it stands for: a bar, not a dot. */
+  .legend__key {
+    width: 8px;
+    height: 14px;
+    flex: none;
+    border-radius: var(--radius-sm);
+  }
+
+  /* The same fill the bars carry, or the legend is describing a chart that no longer
+     exists. */
+  .legend__key--bar {
+    background: color-mix(in srgb, var(--success) 72%, transparent);
+  }
+
+  .legend__key--lost {
+    background: var(--danger);
+  }
+</style>

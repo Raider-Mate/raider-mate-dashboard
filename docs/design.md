@@ -17,10 +17,38 @@ any of that copy here.
 - **Roster view.** Characters, roles, current iLvl and Mythic+ score, from the roster
   and audit endpoints.
 - **Event view.** Signups and comp, from the signup and comp endpoints.
+
+  The page has two faces. Before a WarcraftLogs report has been read it is the comp, the
+  late requests and the signup sheet, in that order. Once the service sends a `report`
+  link it turns around: the night's pulls, the damage board, and who actually showed come
+  first, and the comp and the sheet move into a disclosure below with every control they
+  had. Late requests never move, because a pending request is a decision somebody is still
+  owed.
+
+  Which face is decided by the link set and nothing else. Exactly one of `report`,
+  `report-pending` and `report-failed` arrives once there is something to say; none of
+  them means the instance has no WarcraftLogs credentials, and the page keeps the plain
+  outbound link it has always had. The page never compares `starts_at` to the clock to
+  decide a raid is over.
+
+  The board is three views of one set of rows (`?metric=damage|healing|deaths`), rendered
+  server-side like the analysis sort. Nothing on it is computed here: the totals, the
+  boss percentages and the pull durations all arrive worked out. Bar widths are the one
+  division, and that is drawing.
 - **Comp builder.** Manual editing of a comp's slots. This repo owns it; see below.
 - **Analysis.** Five panels over one fixed ninety-day window: attendance, comp balance,
   roster health, the raid week, and gear over time. Attendance is free for every guild;
   the other four are Premium.
+
+  Each panel is a page. `/analysis` is an overview carrying one figure per panel and a
+  link into it; `/analysis/weeks`, `/analysis/attendance`, `/analysis/comp`,
+  `/analysis/roster` and `/analysis/gear` own the detail. The panel vocabulary lives in
+  `src/lib/analysis.ts` in one list, read by the overview, the sub-navigation and every
+  locked state, so the five names are spelled once.
+
+  The overview is the only page that reads all five; a panel page follows its own link
+  and nothing else. That is the point of the split as much as the scrolling was: sorting
+  the attendance table used to re-fetch the gear chart to do it.
 
   Which of them holds numbers is decided entirely by the link set on
   `GET /api/guilds/{gid}/analysis`. A panel with no link renders locked. The list of
@@ -38,7 +66,43 @@ any of that copy here.
   rendered only when the API returns the data, upsell state when it does not, never a
   tier flag read client-side.
 
-## 2. HATEOAS and allowed_statuses
+## 2. No scroll parties
+
+A page that answers a question by stacking every part of the answer down the screen has
+not answered it. A raid lead opens this dashboard to find something out and close it
+again, usually with half their attention and something else on the other monitor. If the
+thing they came for is below the fold, the page failed regardless of how well each block
+in it reads.
+
+This has been the same bug three times now, so it is written down rather than rediscovered:
+
+- `/analysis` was five full-width panels in one column, plus four locked ones under them.
+  It became an overview of five cards and five pages, one per panel.
+- The attendance table rendered the whole roster. It paginates.
+- The post-raid timeline drew every boss as a full-width band, stacked. A twelve-pull
+  progression night looked right; a six-boss clear was a screen and a half of mostly empty
+  green. It became a grid of boss cards.
+
+The rules that came out of it:
+
+- **Count the common case, not the one you designed against.** A shape that reads well for
+  twelve pulls on one boss and badly for one pull on twelve bosses is a shape for a night
+  most guilds do not have.
+- **A handful of things belongs in a grid.** A list is for things you read in order or
+  compare down a column; a grid is for things you scan. Six bosses are scanned.
+- **A repeating block is a hint the page is the wrong shape.** Three of the same panel
+  stacked usually wants to be three cards, three columns, or three pages.
+- **An unbounded list gets a page size.** Rosters, signups and event lists all grow, and
+  the one that grows fastest is the one nobody tested with.
+- **Summarise, then link.** An overview earns its place by carrying one figure per thing
+  and a way in. If it repeats the detail it is not an overview, it is the same scroll with
+  more steps.
+
+None of this is a licence to hide things. Every control that existed still exists, and a
+gated panel still sits in the navigation saying what is behind it. The fix for a long page
+is structure, never removal.
+
+## 3. HATEOAS and allowed_statuses
 
 Every entity the API returns carries a `_links` object describing what the current user
 may do with it. Signups additionally carry `allowed_statuses`: the set this caller may
@@ -54,7 +118,7 @@ entirely for a caller who cannot act on that signup, the same way its links are.
 See `raider-mate-service/docs/design.md` section 2 for the link shape and the reasoning
 behind it.
 
-## 3. Manual comp editing
+## 4. Manual comp editing
 
 This is the one piece of interaction the bot deliberately does not have.
 
@@ -130,7 +194,7 @@ The board is drawn server-side and the script moves the existing card nodes rath
 re-rendering. That keeps one copy of the card markup in the repo, keeps focus on the
 node a raid lead is carrying, and makes the move animation a real element travelling.
 
-## 4. Bench
+## 5. Bench
 
 Bench membership lives on `comp_slots.is_bench`, decided fresh by every lock. It is not
 a signup status; `BENCH` was dropped from the enum.
@@ -147,7 +211,7 @@ who, and stamps each one with the reason to show. Working that out here by diffi
 signup list against the slots would be this repo deciding who holds a seat, which is
 exactly what rule 1 forbids.
 
-## 5. Template
+## 6. Template
 
 Scaffolded from **accessible-astro-dashboard** by Mark Teekman, MIT licensed.
 
@@ -184,7 +248,7 @@ The MIT licence still applies to what was ported and is kept in
 CSS with custom properties, which drops the Dart Sass deprecation warnings and one
 dependency.
 
-## 6. Session and actor
+## 7. Session and actor
 
 The service authenticates with a shared API key and four self-asserted headers:
 `X-Actor-Discord-Id`, `X-Actor-Guild-Id`, `X-Actor-Roles` and `X-Actor-Guild-Admin`. It
@@ -215,7 +279,7 @@ Role ids are re-read from Discord every 15 minutes. A raider promoted to raid le
 mid-session waits at most that long, and the service re-resolves capability from those
 ids on every request, so the staleness window is entirely on this side.
 
-## 7. Still outstanding
+## 8. Still outstanding
 
 - CSRF beyond form posts. Two things cover what exists today: the session cookie is
   `SameSite=Lax`, and Astro's `security.checkOrigin` (on by default) answers 403 to a
@@ -231,7 +295,7 @@ ids on every request, so the staleness window is entirely on this side.
   is in, because the service has no endpoint that says which ones it knows about. An
   unregistered guild renders empty, which is honest but not friendly.
 
-## 8. What this repo does not decide
+## 9. What this repo does not decide
 
 Whether a signup is valid, how the assigner ranks candidates, who is benched, and what
 counts as a Premium feature are all service-side. This repo displays what the API

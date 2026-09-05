@@ -138,6 +138,12 @@ export interface Event extends Linked {
    * The WarcraftLogs report a raid lead attached after the night. Absent until someone
    * does, and most events never get one. The `warcraftlogs` link carries the same URL;
    * render from the link, since that is what the service offered.
+   *
+   * Whether the numbers behind that report are readable is a separate question, and the
+   * answer is a link rel rather than a field: exactly one of `report`, `report-pending`
+   * and `report-failed` appears once the service has something to say. None of them
+   * means the instance has no WarcraftLogs credentials, and the event page keeps the
+   * plain outbound link it has always had.
    */
   warcraftlogs_url?: string;
   /**
@@ -430,4 +436,93 @@ export interface IlvlWeek {
 
 export interface IlvlSeries extends Linked, AnalysisPeriod {
   weeks: IlvlWeek[];
+}
+
+/**
+ * What became of the attached report. A client branches on the link rel before it gets
+ * here; this is the reason, for the states that have one worth naming.
+ */
+export type ReportStatus =
+  'PENDING' | 'READY' | 'PRIVATE' | 'NOT_FOUND' | 'ARCHIVED' | 'UNAVAILABLE';
+
+/** One boss pull. Trash is not in here: a raid night is measured in pulls. */
+export interface ReportFight {
+  /** WarcraftLogs' own id inside the report, and the anchor of a #fight=12 deep link. */
+  fight_id: number;
+  encounter: string;
+  /** Absent where the log used a difficulty the service does not name. */
+  difficulty?: RaidDifficulty;
+  /** Always present, so an unrecognised difficulty still reads as a number. */
+  difficulty_id?: number;
+  raid_size?: number;
+  kill: boolean;
+  /**
+   * How much health the boss had left, 0 to 100, and about zero on a kill. Absent on a
+   * pull WarcraftLogs could not measure, which is not the same as zero.
+   */
+  boss_percentage?: number;
+  starts_at: string;
+  ends_at: string;
+  duration_seconds: number;
+  /**
+   * This pull's own numbers. Absent on a pull WarcraftLogs was not read individually
+   * for, which is the tail of a very long night; the night totals still cover it.
+   */
+  raiders?: ReportRaider[];
+}
+
+/** One player's night. Totals across every boss pull; there are no per-fight numbers. */
+export interface ReportRaider {
+  /** Absent when nobody on the roster answers to that name: a pug, or a trial. */
+  character_id?: string;
+  /** As the log spelled them, which is not always how the roster does. */
+  name: string;
+  realm: string;
+  class?: string;
+  damage: number;
+  healing: number;
+  deaths: number;
+}
+
+export interface ReportUnknownActor {
+  name: string;
+  realm: string;
+  class?: string;
+}
+
+/** The log checked against the signup sheet. */
+export interface ReportTurnout {
+  attended: CharacterRef[];
+  /** In the log, on nobody's roster. */
+  unknown: ReportUnknownActor[];
+  /** Said yes and never appeared. Tentative signups are not in here. */
+  missing: CharacterRef[];
+  /**
+   * Matched actors over total actors, 0 to 1. Near zero on a full raid means the report
+   * is not this guild's night.
+   */
+  roster_overlap: number;
+}
+
+/** A raider as the turnout lists carry them, the same shape the attendance panel uses. */
+export interface CharacterRef {
+  character_id: string;
+  name: string;
+  realm: string;
+  class?: string;
+}
+
+export interface EventReport extends Linked {
+  status: ReportStatus;
+  /** True while a pull is still running. The numbers are real but not final. */
+  live: boolean;
+  url: string;
+  title?: string;
+  zone?: string;
+  starts_at?: string;
+  ends_at?: string;
+  fetched_at?: string;
+  fights: ReportFight[];
+  raiders: ReportRaider[];
+  turnout: ReportTurnout;
 }

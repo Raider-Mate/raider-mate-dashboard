@@ -1,0 +1,249 @@
+---
+import AnalysisNav from '../../components/analysis-nav.astro';
+import LockedPanel from '../../components/locked-panel.astro';
+import DashboardLayout from '../../layouts/dashboard-layout.astro';
+import {
+  PANELS,
+  fetchAnalysisIndex,
+  followPanel,
+  panelHref,
+  percent,
+  settled,
+  type PanelSlug,
+} from '../../lib/analysis';
+import { ROLE_LABELS } from '../../lib/roles';
+import { noticeFor } from '../../lib/service-notice';
+import type {
+  Attendance,
+  CompBalance,
+  IlvlSeries,
+  RosterHealth,
+  Throughput,
+} from '../../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+/*
+ * The overview reads every panel, because a card without its figure is an advert for a
+ * page rather than a summary of one. It is the only page in the section that does: each
+ * sub-page fetches its own panel and nothing else, which is what this split bought.
+ */
+let attendance: Attendance | null = null;
+let balance: CompBalance | null = null;
+let health: RosterHealth | null = null;
+let throughput: Throughput | null = null;
+let ilvl: IlvlSeries | null = null;
+let failure: string | null = null;
+
+try {
+  const index = await fetchAnalysisIndex(client, actor, session!.selectedGuildId);
+
+  // One panel failing must not blank the four that loaded.
+  const [weeks, free, roles, roster, gear] = await Promise.allSettled([
+    followPanel<Throughput>(client, actor, index, 'throughput'),
+    followPanel<Attendance>(client, actor, index, 'attendance'),
+    followPanel<CompBalance>(client, actor, index, 'comp-balance'),
+    followPanel<RosterHealth>(client, actor, index, 'roster-health'),
+    followPanel<IlvlSeries>(client, actor, index, 'ilvl'),
+  ]);
+
+  throughput = settled(weeks);
+  attendance = settled(free);
+  balance = settled(roles);
+  health = settled(roster);
+  ilvl = settled(gear);
+} catch (error) {
+  failure = noticeFor(error);
+}
+
+// Every panel reports the same window, so whichever one loaded can name it.
+const covered = attendance ?? balance ?? health ?? throughput ?? ilvl;
+
+/**
+ * The card face for each panel: one figure the service already sent, and one line under
+ * it. Nothing here divides two fields. Where a figure is a choice among the values the
+ * service sent rather than a value on its own, it is a selection, which is drawing, not
+ * statistics.
+ */
+type Face = { figure: string; note: string } | null;
+
+// The busiest role on the boards, named. Sorted rather than reduced so the tie-break is
+// the service's own order.
+const busiest = balance?.roles.length
+  ? [...balance.roles].sort((a, b) => b.share - a.share)[0]!
+  : null;
+
+const lastGear = ilvl?.weeks.length ? ilvl.weeks[ilvl.weeks.length - 1]! : null;
+
+const FACES: Record<PanelSlug, Face> = {
+  weeks: throughput
+    ? {
+        figure: `${throughput.events}`,
+        note: `${throughput.events === 1 ? 'raid' : 'raids'} over ${throughput.weeks.length} ${
+          throughput.weeks.length === 1 ? 'week' : 'weeks'
+        }`,
+      }
+    : null,
+  attendance: attendance
+    ? {
+        figure: `${attendance.raiders.length}`,
+        note: `${attendance.raiders.length === 1 ? 'raider' : 'raiders'} across ${
+          attendance.events
+        } ${attendance.events === 1 ? 'raid' : 'raids'}`,
+      }
+    : null,
+  comp: busiest
+    ? { figure: percent(busiest.share), note: `of the boards are ${ROLE_LABELS[busiest.role]}` }
+    : null,
+  roster: health
+    ? { figure: `${health.active}`, note: `of ${health.characters} characters still turning up` }
+    : null,
+  gear: lastGear
+    ? { figure: `${Math.round(lastGear.median)}`, note: 'median item level this week' }
+    : null,
+};
+
+const unlocked = PANELS.filter((panel) => FACES[panel.slug] !== null).map((panel) => panel.slug);
+
+/*
+ * Panels with nothing in them are gathered at the end. A guild without a subscription
+ * would otherwise open on a locked card, with the one thing it can actually read pushed
+ * below an advert for the things it cannot.
+ *
+ * This is not a tier check. It sorts on whether a panel has content, which is the
+ * service's answer, and the order within each group is the canonical one, so a panel
+ * arrives back where it was always going to be the moment its data does.
+ */
+const filled = PANELS.filter((panel) => FACES[panel.slug] !== null);
+const empty = PANELS.filter((panel) => FACES[panel.slug] === null);
+---
+
+<DashboardLayout title="Analysis">
+  <p slot="head" class="muted">
+    The last ninety days in {session!.selectedGuildName}. Every panel covers the same window.
+  </p>
+
+  {
+    covered && (
+      <span slot="actions" class="badge">
+        {covered.since.slice(0, 10)} to {covered.until.slice(0, 10)}
+      </span>
+    )
+  }
+
+  <AnalysisNav unlocked={unlocked} />
+
+  {failure && <p class="notice">{failure}</p>}
+
+  <div class="cards">
+    {
+      filled.map((panel) => {
+        const face = FACES[panel.slug]!;
+        return (
+          <section class="panel card">
+            <div class="card__head">
+              <h2 transition:name={`analysis-${panel.slug}`}>
+                {/* The whole card is the target, so the pointer has something the size of
+                    a card to aim at while the accessible name stays the panel. */}
+                <a class="card__link" href={panelHref(panel.slug)}>
+                  {panel.title}
+                </a>
+              </h2>
+            </div>
+            <p class="card__figure">
+              <span class="card__value">{face.figure}</span>
+              <span class="card__note">{face.note}</span>
+            </p>
+            <p class="card__blurb">{panel.blurb}</p>
+          </section>
+        );
+      })
+    }
+
+    {empty.map((panel) => <LockedPanel title={panel.title} blurb={panel.blurb} />)}
+  </div>
+</DashboardLayout>
+
+<style>
+  .cards {
+    display: grid;
+    gap: 1.25rem;
+    /* Two up on a wide screen, one up on a phone. Not three: the figure is the point and
+       a third column shrinks it to the size of the label under it. */
+    grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+  }
+
+  .cards > * {
+    min-width: 0;
+  }
+
+  .card {
+    position: relative;
+    display: grid;
+    align-content: start;
+    padding: 1.25rem;
+    transition: border-color var(--dur-1) var(--ease);
+  }
+
+  .card__head {
+    margin-bottom: 0.875rem;
+  }
+
+  .card h2 {
+    margin: 0;
+    font-size: var(--fs-lg);
+  }
+
+  .card__link {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  /* Stretched over the whole card, so the row-as-link pattern the events table uses
+     works here too without wrapping a heading in an anchor the size of a page. */
+  .card__link::after {
+    position: absolute;
+    inset: 0;
+    content: '';
+  }
+
+  /* The border is the whole hover response. A card that lifts or tints would be the
+     second thing on this page competing with the figure it is meant to frame. */
+  .card:hover,
+  .card:focus-within {
+    border-color: var(--border-strong);
+  }
+
+  .card__figure {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    margin: 0;
+  }
+
+  .card__value {
+    font-size: var(--fs-2xl);
+    font-variant-numeric: tabular-nums;
+    font-weight: 640;
+    letter-spacing: -0.022em;
+    line-height: 1.1;
+  }
+
+  .card__note {
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+  }
+
+  .card__blurb {
+    max-width: 46ch;
+    margin: 0.75rem 0 0;
+    color: var(--text-tertiary);
+    font-size: var(--fs-sm);
+  }
+</style>

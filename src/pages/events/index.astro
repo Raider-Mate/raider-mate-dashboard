@@ -10,6 +10,7 @@ import {
   instantToGuildTime,
 } from '../../lib/guild-time';
 import { getLink } from '../../lib/links';
+import { clampPage, pageWindow } from '../../lib/pagination';
 import { noticeFor } from '../../lib/service-notice';
 import type { Event } from '../../lib/service-types';
 
@@ -44,28 +45,9 @@ try {
 // Roughly a screen's worth on the laptop half of a raid lead's desk.
 const PER_PAGE = 10;
 const pageCount = Math.max(1, Math.ceil(events.length / PER_PAGE));
-const requested = Number.parseInt(Astro.url.searchParams.get('page') ?? '1', 10);
-const page = Number.isNaN(requested) ? 1 : Math.min(Math.max(requested, 1), pageCount);
+const page = clampPage(Astro.url.searchParams.get('page'), pageCount);
 const start = (page - 1) * PER_PAGE;
 const shown = events.slice(start, start + PER_PAGE);
-
-/** First, last, and the current page's neighbours. Gaps render as an ellipsis. */
-function pageNumbers(): (number | null)[] {
-  if (pageCount <= 7) {
-    return Array.from({ length: pageCount }, (_, index) => index + 1);
-  }
-  const around = [page - 1, page, page + 1].filter((n) => n > 1 && n < pageCount);
-  const spread: (number | null)[] = [];
-  let previous = 0;
-  for (const n of [1, ...around, pageCount]) {
-    if (previous > 0 && n - previous > 1) {
-      spread.push(null);
-    }
-    spread.push(n);
-    previous = n;
-  }
-  return spread;
-}
 
 function href(n: number, toPast = past): string {
   const params = new URLSearchParams();
@@ -300,7 +282,7 @@ for (const event of events) {
               ) : (
                 <span aria-disabled="true">Previous</span>
               )}
-              {pageNumbers().map((n) =>
+              {pageWindow(page, pageCount).map((n) =>
                 n === null ? (
                   <span class="pagination__gap" aria-hidden="true">
                     &hellip;

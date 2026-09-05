@@ -409,7 +409,13 @@ Where the API is unavailable the navigation is an ordinary one and nothing is lo
   as a coloured line; it is named here so it stays one place rather than becoming a
   house style. Nothing outside that band glows.
 - **Don't** nest a card inside a card, or use a same-size card grid as a page's
-  structure.
+  structure. A grid of blocks *inside* one panel is a different thing and is fine: the
+  comp's role columns and the post-raid boss cards are both that.
+- **Don't** answer a question by stacking every part of the answer down the screen. Count
+  the common case, not the one the shape was designed against; a handful of things belongs
+  in a grid, an unbounded list gets a page size, and an overview carries one figure per
+  thing and a way in. See `docs/design.md` section 2, which exists because this went wrong
+  three times.
 - **Don't** stage a page-load animation. This surface opens into a task.
 - **Don't** remove or thin a focus outline. Keyboard operability is a product
   requirement here, not a preference.

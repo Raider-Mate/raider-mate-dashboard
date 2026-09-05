@@ -1,0 +1,203 @@
+---
+import AnalysisNav from '../../components/analysis-nav.astro';
+import LockedPanel from '../../components/locked-panel.astro';
+import ProportionBar from '../../components/proportion-bar.astro';
+import DashboardLayout from '../../layouts/dashboard-layout.astro';
+import { fetchAnalysisIndex, followPanel, panelFor } from '../../lib/analysis';
+import { ROLE_HUES, ROLE_LABELS, ROLE_ORDER } from '../../lib/roles';
+import { noticeFor } from '../../lib/service-notice';
+import type { RosterHealth } from '../../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+const panel = panelFor('roster');
+
+let health: RosterHealth | null = null;
+let failure: string | null = null;
+
+try {
+  const index = await fetchAnalysisIndex(client, actor, session!.selectedGuildId);
+  health = await followPanel<RosterHealth>(client, actor, index, panel.rel);
+} catch (error) {
+  failure = noticeFor(error);
+}
+---
+
+<DashboardLayout title={panel.title} titleTransition="analysis-roster">
+  <p slot="head" class="muted">{panel.blurb}</p>
+
+  {
+    health && (
+      <span slot="actions" class="badge">
+        {health.since.slice(0, 10)} to {health.until.slice(0, 10)}
+      </span>
+    )
+  }
+
+  <AnalysisNav current="roster" unlocked={health ? ['roster'] : []} />
+
+  {failure && <p class="notice">{failure}</p>}
+
+  {!health && !failure && <LockedPanel title={panel.title} blurb={panel.blurb} />}
+
+  {
+    health && (
+      <div class="stack">
+        <section class="panel">
+          <div class="panel__body">
+            <dl class="figures">
+              <div>
+                <dt>Characters</dt>
+                <dd>{health.characters}</dd>
+              </div>
+              <div>
+                <dt>Mains</dt>
+                <dd>{health.mains}</dd>
+              </div>
+              <div>
+                <dt>Turning up</dt>
+                <dd>{health.active}</dd>
+              </div>
+              <div>
+                <dt>Gone quiet</dt>
+                <dd>{health.dormant}</dd>
+              </div>
+            </dl>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel__head">
+            <h2>What the roster can play</h2>
+          </div>
+          <div class="panel__body">
+            {health.coverage.length > 0 ? (
+              <ul class="rows">
+                {ROLE_ORDER.filter((role) => health!.coverage.some((row) => row.role === role)).map(
+                  (role, index) => {
+                    const row = health!.coverage.find((entry) => entry.role === role)!;
+                    return (
+                      <li class="row">
+                        <span class="row__label">{ROLE_LABELS[role]}</span>
+                        <ProportionBar
+                          index={index}
+                          total={row.characters}
+                          label={`${row.characters} can play it, ${row.first_choice} put it first.`}
+                          segments={[
+                            {
+                              hue: ROLE_HUES[role],
+                              value: row.first_choice,
+                              label: 'First choice',
+                            },
+                            {
+                              hue: 'var(--text-tertiary)',
+                              value: row.characters - row.first_choice,
+                              label: 'Will play it',
+                            },
+                          ]}
+                        />
+                        <span class="row__figure">
+                          <span class="row__value">{row.characters}</span>
+                          <span class="row__note">{row.first_choice} first choice</span>
+                        </span>
+                      </li>
+                    );
+                  },
+                )}
+              </ul>
+            ) : (
+              <p class="muted">Nobody has set a role menu yet.</p>
+            )}
+          </div>
+        </section>
+      </div>
+    )
+  }
+</DashboardLayout>
+
+<style>
+  .stack {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+
+  .figures {
+    display: grid;
+    gap: 1rem 2rem;
+    /* auto-fit rather than a fixed four: the labels do not wrap, so four columns on a
+       phone would push the whole page wider than the viewport. Two rows of two is the
+       honest fallback. */
+    grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+    align-items: start;
+    max-width: 34rem;
+    margin: 0;
+  }
+
+  .figures dt {
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .figures dd {
+    margin: 0.125rem 0 0;
+    font-size: var(--fs-xl);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rows {
+    display: grid;
+    gap: 0.75rem;
+    max-width: 34rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .row {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .row__label {
+    font-size: var(--fs-sm);
+  }
+
+  .row__figure {
+    display: grid;
+    justify-items: end;
+    line-height: 1.3;
+  }
+
+  .row__value {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .row__note {
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 44rem) {
+    .row {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .row__label {
+      grid-column: 1 / -1;
+    }
+  }
+</style>

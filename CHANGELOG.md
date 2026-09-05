@@ -12,6 +12,58 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+### Added
+
+- **The event page shows what happened in the raid.** Once a WarcraftLogs report is
+  attached and Raider Mate has read it, the event page turns around: the night comes
+  first and the plan moves below it.
+
+  The night is drawn as its pulls, each one as wide as it actually ran and as tall as the
+  raid got through the boss. Eleven short bars and then a full one is a progression night,
+  and you can see that before reading a number. Clicking a pull opens it on WarcraftLogs.
+
+  Under it, damage, healing and deaths per raider, as three views of one board. Click any
+  pull, on its line or in the list beside it, and the board shows that pull instead of the
+  whole evening; the selection is in the address, so a wipe worth arguing about is a link
+  worth pasting into Discord. Then who actually showed: who turned up, who said yes and never appeared, and who was in the log
+  without being on the roster. That last pair is the thing a signup sheet cannot tell you.
+
+  The comp and the signup sheet are still there, one click down, with every control they
+  had. What goes away is the pair of controls that can only be refused once the raid has
+  happened: signing up for it, and the late-request queue.
+
+- **Signups close for good when the raid starts.** The service now refuses any change to a
+  signup past the start time, so the buttons stop being offered rather than failing when
+  pressed. A raid lead marking a no-show is the one thing that still goes through. Needs a
+  raider-mate-service carrying that rule. Needs a raider-mate-service with the report endpoints, and an instance with
+  WarcraftLogs credentials configured; without them the page is exactly what it was.
+
+- **A raid lead can ask for a report to be read again.** A finished raid is read once and
+  then left alone. This is for the night WarcraftLogs was down, or the report that has
+  just stopped being private.
+
+### Changed
+
+- **Analysis is five pages now, not one long one.** `/analysis` opens on an overview:
+  one card per panel, each carrying a single figure and a link into the panel it
+  summarises. The raid week, attendance, comp balance, roster health and gear over time
+  each have their own page and their own address, so a link to the attendance table is a
+  link to the attendance table.
+
+  Opening a panel is also faster. The old page fetched all five every time, which meant
+  sorting the attendance table by no-shows re-fetched the gear chart to do it. A panel
+  page now asks for its own panel and nothing else.
+
+  Panels that are part of Premium sit in the navigation like any other, with a `Premium`
+  chip, and their pages say what is behind them. Nothing is hidden, and nothing about
+  which panels a guild may read is decided here: the service sends a link for each one a
+  guild can open, and a panel with no link renders locked.
+
+- **The attendance table is paginated.** A roster of eighty ran off the bottom of the
+  screen and took the rest of the page with it. Twenty-five raiders to a page, and the
+  sort travels with the page number, so a sorted view stays a URL worth pasting into
+  Discord.
+
 ## [0.8.0] - 2026-08-31
 
 ### Added

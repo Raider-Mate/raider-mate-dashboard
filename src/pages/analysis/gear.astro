@@ -1,0 +1,83 @@
+---
+import AnalysisNav from '../../components/analysis-nav.astro';
+import IlvlChart from '../../components/ilvl-chart.astro';
+import LockedPanel from '../../components/locked-panel.astro';
+import DashboardLayout from '../../layouts/dashboard-layout.astro';
+import { fetchAnalysisIndex, followPanel, panelFor } from '../../lib/analysis';
+import { noticeFor } from '../../lib/service-notice';
+import type { IlvlSeries } from '../../lib/service-types';
+
+export const prerender = false;
+
+const { session, actor, client } = Astro.locals;
+
+if (!session!.selectedGuildId) {
+  return Astro.redirect('/guild');
+}
+
+const panel = panelFor('gear');
+
+let ilvl: IlvlSeries | null = null;
+let failure: string | null = null;
+
+try {
+  const index = await fetchAnalysisIndex(client, actor, session!.selectedGuildId);
+  ilvl = await followPanel<IlvlSeries>(client, actor, index, panel.rel);
+} catch (error) {
+  failure = noticeFor(error);
+}
+
+const latest = ilvl?.weeks.length ? ilvl.weeks[ilvl.weeks.length - 1]! : null;
+---
+
+<DashboardLayout title={panel.title} titleTransition="analysis-gear">
+  <p slot="head" class="muted">{panel.blurb}</p>
+
+  {
+    latest && (
+      <span slot="actions" class="badge">
+        {Math.round(latest.median)} median
+      </span>
+    )
+  }
+
+  <AnalysisNav current="gear" unlocked={ilvl ? ['gear'] : []} />
+
+  {failure && <p class="notice">{failure}</p>}
+
+  {!ilvl && !failure && <LockedPanel title={panel.title} blurb={panel.blurb} />}
+
+  {
+    ilvl && (
+      <section class="panel">
+        <div class="panel__body">
+          {ilvl.weeks.length > 0 ? (
+            <>
+              <IlvlChart weeks={ilvl.weeks} window={ilvl} />
+              <p class="chart-read">
+                The band is the middle half of the roster's mains, from the 25th to the 75th item
+                level. The line through it is the median. Alts and characters nobody has synced
+                since they were abandoned are left out, because one of them sets a floor the roster
+                does not have.
+              </p>
+            </>
+          ) : (
+            <p class="muted">
+              No snapshots in the window. Item level lands here once raiders register characters and
+              the sync has run.
+            </p>
+          )}
+        </div>
+      </section>
+    )
+  }
+</DashboardLayout>
+
+<style>
+  .chart-read {
+    max-width: 68ch;
+    margin: 0.875rem 0 0;
+    color: var(--text-secondary);
+    font-size: var(--fs-sm);
+  }
+</style>

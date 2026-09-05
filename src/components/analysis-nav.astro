@@ -1,0 +1,121 @@
+---
+import { PANELS, panelHref, type PanelSlug } from '../lib/analysis';
+
+interface Props {
+  /** The panel being read, or undefined on the overview. */
+  current?: PanelSlug | undefined;
+  /**
+   * The slugs the service sent data for. A panel outside this set is still a link and
+   * still in the same place; it wears the Premium chip and its page renders locked.
+   * Hiding it would make the product look smaller than it is.
+   */
+  unlocked: readonly PanelSlug[];
+}
+
+const { current, unlocked } = Astro.props;
+---
+
+<nav class="subnav" aria-label="Analysis">
+  <ul>
+    <li>
+      <a class="subnav__link" href="/analysis" aria-current={current ? undefined : 'page'}>
+        Overview
+        {
+          !current && (
+            <span class="subnav__marker" transition:name="analysis-marker" aria-hidden="true" />
+          )
+        }
+      </a>
+    </li>
+    {
+      PANELS.map((panel) => (
+        <li>
+          <a
+            class="subnav__link"
+            href={panelHref(panel.slug)}
+            aria-current={current === panel.slug ? 'page' : undefined}
+          >
+            {panel.title}
+            {!unlocked.includes(panel.slug) && <span class="subnav__chip">Premium</span>}
+            {current === panel.slug && (
+              <span class="subnav__marker" transition:name="analysis-marker" aria-hidden="true" />
+            )}
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</nav>
+
+<style>
+  /*
+   * The same grammar as the top bar, one level down: a row of links with a 2px amber bar
+   * under the current one, sliding between destinations on the same view-transition
+   * mechanism. Nothing new is invented here, because a second navigation idea on the
+   * same page is how a raid lead loses track of which one they are in.
+   */
+  .subnav {
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .subnav ul {
+    display: flex;
+    gap: 0.25rem;
+    /* Below 52rem this becomes a scrolling strip rather than wrapping or hiding, which
+       is what the top bar does with the same problem. */
+    overflow-x: auto;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    scrollbar-width: none;
+  }
+
+  .subnav ul::-webkit-scrollbar {
+    display: none;
+  }
+
+  .subnav__link {
+    position: relative;
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+    padding: 0.5rem 0.625rem 0.6875rem;
+    color: var(--text-secondary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+    letter-spacing: 0.01em;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--dur-1) var(--ease);
+  }
+
+  .subnav__link:hover {
+    color: var(--text-primary);
+  }
+
+  .subnav__link[aria-current='page'] {
+    color: var(--text-primary);
+  }
+
+  .subnav__marker {
+    position: absolute;
+    right: 0.625rem;
+    bottom: -1px;
+    left: 0.625rem;
+    height: 2px;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+  }
+
+  /* Neutral, not amber. A gate is not an action and not where you are, which is the
+     only two things amber is allowed to mean on this surface. */
+  .subnav__chip {
+    padding: 1px 0.375rem;
+    border-radius: var(--radius-full);
+    background: var(--raised);
+    color: var(--text-tertiary);
+    font-size: var(--fs-xs);
+    font-weight: 560;
+  }
+</style>
