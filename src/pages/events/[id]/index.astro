@@ -343,6 +343,7 @@ function templateSize(field: string): number | '' {
 <DashboardLayout
   title={event?.title ?? 'Event'}
   titleTransition={event ? `event-title-${event.id}` : undefined}
+  vellum={event !== null}
 >
   {
     event && (

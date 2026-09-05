@@ -157,3 +157,18 @@ read back rather than a rule invented here.
 - The attendance panel still counts signup statuses. What the log says about who turned up
   deliberately does not feed it: two pages disagreeing about the word "turned up" would be
   worse than one page not knowing.
+
+## The header band (2026-09-05)
+
+The page title sits on vellum, the same sheet as the overview's summons, set by the
+`vellum` prop on `DashboardLayout`. It is the far end of the morph that starts on the
+overview: the raid name and its chips travel from the summons onto matching material
+rather than onto a dark bar.
+
+That prop has one caller and is meant to. The band is owned by the layout, so the page
+cannot reach it, and the event header is the only header that is the other half of an
+object on another page.
+
+Everything inside the band takes the vellum token scope without knowing it exists: the
+chips re-cut for paper, the "All events" button on a lighter sheet, the focus ring in
+bronze. Nothing in this page's own styles was changed for it.

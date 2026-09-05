@@ -1,8 +1,15 @@
 ---
 import EventChips from '../components/event-chips.astro';
 import BotInstall from '../components/bot-install.astro';
+import EncounterSigil from '../components/encounter-sigil.astro';
 import DashboardLayout from '../layouts/dashboard-layout.astro';
-import { fetchGuildTimezone, formatEventTime, formatSignupWindow } from '../lib/guild-time';
+import {
+  fetchGuildTimezone,
+  formatEventTime,
+  formatSignupWindow,
+  pullTier,
+  signupsClosing,
+} from '../lib/guild-time';
 import { noticeFor } from '../lib/service-notice';
 import type { Event } from '../lib/service-types';
 
@@ -31,6 +38,11 @@ try {
 const NEXT_UP = 3;
 const [next, ...following] = events.slice(0, NEXT_UP);
 const now = new Date();
+
+// How alive the summons looks. Read at request time on a page that is never prerendered,
+// so it is right when it arrives, and it says the absolute times too.
+const tier = next ? pullTier(next.starts_at, now) : 'distant';
+const closing = next ? signupsClosing(next.signup_deadline, now) : false;
 ---
 
 <DashboardLayout title="Overview">
@@ -58,43 +70,51 @@ const now = new Date();
 
   {
     next && (
-      <article class="next">
-        <div class="next__head">
-          <span class="badge">Up next</span>
-          <span transition:name={`event-chips-${next.id}`}>
-            <EventChips event={next} />
-          </span>
+      <article class="next vellum" data-pull={tier}>
+        <div class="next__body">
+          <div class="next__head">
+            <span class="kicker">{tier === 'live' ? 'Under way' : 'Up next'}</span>
+            <span transition:name={`event-chips-${next.id}`}>
+              <EventChips event={next} />
+            </span>
+          </div>
+
+          <h2>
+            <a href={`/events/${next.id}`} transition:name={`event-title-${next.id}`}>
+              {next.title}
+            </a>
+          </h2>
+
+          <dl class="next__facts">
+            <div>
+              <dt>Starts</dt>
+              <dd>
+                <time datetime={next.starts_at}>{formatEventTime(next.starts_at, timezone)}</time>
+              </dd>
+            </div>
+            <div class:list={['fact', closing && 'fact--closing']}>
+              <dt>Signups close</dt>
+              <dd>
+                {formatSignupWindow(next.signup_deadline, now)}
+                <span class="at">
+                  <time datetime={next.signup_deadline}>
+                    {formatEventTime(next.signup_deadline, timezone)}
+                  </time>
+                </span>
+              </dd>
+            </div>
+          </dl>
+
+          <a class="button" href={`/events/${next.id}`}>
+            Open event
+          </a>
         </div>
 
-        <h2>
-          <a href={`/events/${next.id}`} transition:name={`event-title-${next.id}`}>
-            {next.title}
-          </a>
-        </h2>
-
-        <dl class="next__facts">
-          <div>
-            <dt>Starts</dt>
-            <dd>
-              <time datetime={next.starts_at}>{formatEventTime(next.starts_at, timezone)}</time>
-            </dd>
-          </div>
-          <div>
-            <dt>Signups close</dt>
-            <dd>
-              {formatSignupWindow(next.signup_deadline, now)}
-              <span class="at">
-                <time datetime={next.signup_deadline}>
-                  {formatEventTime(next.signup_deadline, timezone)}
-                </time>
-              </span>
-            </dd>
-          </div>
-        </dl>
-
-        <a class="button" href={`/events/${next.id}`}>
-          Open event
-        </a>
+        {/* The thing tonight is pointed at. Same mark the comp board aims its beams at,
+            carrying the same difficulty colour, breathing on the clock the pull sets. */}
+        <div class="next__sigil" aria-hidden="true">
+          <EncounterSigil difficulty={next.difficulty} title={next.title} />
+        </div>
       </article>
     )
   }
@@ -134,28 +154,130 @@ const now = new Date();
 </DashboardLayout>
 
 <style>
-  /* The one question this page answers, at the scale of the answer. */
+  /*
+   * The muster order. The one question this page answers, on the one material in the
+   * product that is not the console, at the scale of the answer.
+   *
+   * Torn from the book rather than framed: the gilt bevel .vellum gives it runs along
+   * three sides and the fourth is a deckled edge, cut by a mask through both the sheet
+   * and the trim. Where masks are unavailable it is a straight edge and nothing is lost.
+   */
   .next {
+    /* A summons is a document, not a banner. Left to fill 1360px of desktop it read as a
+       mostly empty sheet with the answer huddled in one corner. */
+    /* A summons is a document, not a banner. Left to fill 1360px of desktop it read as a
+       mostly empty sheet with the answer huddled in one corner. At this measure a raid
+       name sets to roughly the width of the column it sits in, and a long one takes two
+       lines rather than leaving half a sheet blank. */
+    max-width: 40rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1.5rem;
+    align-items: start;
+    padding: 1.5rem 1.5rem 1.625rem;
+    /* Gilt on three sides. The bottom edge has no border to cut, so the tear goes
+       through paper rather than slicing the trim into teeth. */
+    border-bottom-width: 0;
+    overflow: clip;
+    /* The tear. Irregular on purpose, in both tooth width and depth: an even zigzag is
+       pinking shears, and a sheet torn out of a book is neither even nor sharp. */
+    mask-image:
+      linear-gradient(to bottom, #000 calc(100% - 8px), transparent calc(100% - 8px)),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='8'%3E%3Cpath d='M0 8 L0 5.6 L8 5.0 L21 5.3 L29 3.2 L42 3.8 L48 4.7 L56 4.0 L69 2.0 L77 2.5 L82 3.6 L93 4.0 L102 5.5 L110 4.1 L119 4.1 L128 1.3 L137 1.5 L142 2.0 L148 3.8 L161 3.2 L169 3.8 L175 3.5 L186 2.5 L191 4.1 L199 4.1 L200 5.6 L200 8 Z'/%3E%3C/svg%3E");
+    mask-size:
+      100% 100%,
+      200px 8px;
+    mask-position:
+      0 0,
+      0 100%;
+    mask-repeat: no-repeat, repeat-x;
+    mask-composite: add;
+  }
+
+  .next__body {
     display: grid;
     gap: 1rem;
     justify-items: start;
-    padding: 1.5rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-xl);
-    background: var(--surface);
+    min-width: 0;
+  }
+
+  /*
+   * The hearth drifting across the paper, on the clock the pull sets. It is a transform
+   * on one already-composited layer rather than an animated gradient position, so a card
+   * that sits on screen for an hour costs no repaints.
+   *
+   * Nothing here is a countdown. The card is simply more alive the closer the raid is,
+   * which is a thing a raid lead reads without looking at it.
+   */
+  .next {
+    --hearth: 0.14;
+    --hearth-x: 30%;
+    --sigil-pulse: 6s;
+  }
+
+  .next::before {
+    inset: 0 -32%;
+  }
+
+  .next[data-pull='soon'] {
+    --hearth: 0.2;
+    --sigil-pulse: 4.4s;
+  }
+
+  .next[data-pull='soon']::before {
+    animation: hearth-drift 24s ease-in-out infinite alternate;
+  }
+
+  .next[data-pull='imminent'] {
+    --hearth: 0.32;
+    --sigil-pulse: 3.2s;
+  }
+
+  .next[data-pull='imminent']::before {
+    animation: hearth-drift 16s ease-in-out infinite alternate;
+  }
+
+  /* Already going. The light stops travelling and settles over the middle of the sheet,
+     because there is nothing left to wait for. */
+  .next[data-pull='live'] {
+    --hearth: 0.34;
+    --hearth-x: 46%;
+    --sigil-pulse: 3.2s;
+  }
+
+  @keyframes hearth-drift {
+    from {
+      transform: translate3d(-7%, 0, 0);
+    }
+
+    to {
+      transform: translate3d(7%, 0, 0);
+    }
   }
 
   .next__head {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 0.625rem;
     align-items: center;
   }
 
+  /* Stamped rather than badged. It is the sheet naming itself, not a status. */
+  .kicker {
+    color: #6f4c0f;
+    font-family: var(--font-display);
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
   .next h2 {
-    font-size: var(--fs-2xl);
-    font-weight: 640;
-    letter-spacing: -0.022em;
+    font-family: var(--font-display);
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: 0.004em;
   }
 
   .next h2 a {
@@ -164,7 +286,10 @@ const now = new Date();
   }
 
   .next h2 a:hover {
-    color: var(--accent);
+    color: var(--accent-hover);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.14em;
   }
 
   .next__facts {
@@ -175,10 +300,10 @@ const now = new Date();
   }
 
   .next__facts dt {
-    color: var(--text-tertiary);
+    color: var(--text-secondary);
     font-size: var(--fs-xs);
-    font-weight: 560;
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
   }
 
@@ -187,10 +312,61 @@ const now = new Date();
     font-variant-numeric: tabular-nums;
   }
 
+  /* The last hour anyone can still be talked into coming. The only thing on this card
+     allowed to pulse, because it is the only thing with a deadline. */
+  .fact--closing dd {
+    color: var(--warning);
+    font-weight: 600;
+  }
+
+  .fact--closing dt {
+    color: var(--warning);
+    animation: ember 2.4s ease-in-out infinite;
+  }
+
+  @keyframes ember {
+    0%,
+    100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.58;
+    }
+  }
+
   .at {
     display: block;
-    color: var(--text-tertiary);
+    color: var(--text-secondary);
     font-size: var(--fs-xs);
+  }
+
+  /* Aligned to the title, not the card, so it reads as aimed at the raid rather than
+     parked in a corner. */
+  /* Centred against the whole sheet rather than hung off the top, which left a void
+     under it and pulled the card's weight into one corner. */
+  .next__sigil {
+    align-self: center;
+    opacity: 0.8;
+  }
+
+  .next__sigil :global(.sigil) {
+    width: 4.75rem;
+    height: 4.75rem;
+  }
+
+  @media (max-width: 40rem) {
+    .next {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .next__sigil {
+      display: none;
+    }
+
+    .next h2 {
+      font-size: var(--fs-2xl);
+    }
   }
 
   .rows {

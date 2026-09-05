@@ -520,9 +520,13 @@ for (const event of events) {
     margin-bottom: 0.875rem;
   }
 
-  /* .section > h2 already spaces the heading; the flex row owns it here instead. */
+  /* .section > h2 already spaces the heading and sets the face; the flex row owns the
+     spacing here instead, and the face has to be restated because this h2 is nested. */
   .calendar__head h2 {
     margin-bottom: 0;
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: 0.004em;
   }
 
   .calendar__nav {

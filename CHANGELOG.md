@@ -12,7 +12,21 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-05
+
 ### Added
+
+- **The next raid arrives as a summons.** The overview's next event is now a sheet of
+  parchment with the encounter's raid marker beside it, and it gets more alive the closer
+  the pull is: still and faint a day out, lit and drifting inside the evening, settled
+  once the raid has started. In the last hour anyone can still be talked into coming, the
+  signup deadline is the only thing on it that pulses.
+
+  Nothing on it is a countdown, and nothing was moved or hidden to make room. It is the
+  same facts the card always carried, at the scale of the answer.
+
+  The event page's header is the same sheet, so clicking through carries the raid name
+  onto matching material instead of swapping it onto a dark bar.
 
 - **The event page shows what happened in the raid.** Once a WarcraftLogs report is
   attached and Raider Mate has read it, the event page turns around: the night comes
@@ -43,6 +57,13 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
   just stopped being private.
 
 ### Changed
+
+- **The dashboard looks like it is about raiding.** The console a raid lead reads before
+  pull is unchanged in density, contrast and speed, but it now carries a gilt rail under
+  the top bar, corner marks on its panels, warmer stone behind everything, and an
+  inscriptional serif on page and section titles. Every figure a raid lead compares down
+  a column is still in the same sans it always was, because the display face has no
+  tabular numerals and a column that shifts width is worse than a plain one.
 
 - **Analysis is five pages now, not one long one.** `/analysis` opens on an overview:
   one card per panel, each carrying a single figure and a link into the panel it

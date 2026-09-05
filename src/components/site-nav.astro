@@ -128,9 +128,33 @@ function isCurrent(href: string): boolean {
     position: sticky;
     top: 0;
     z-index: 20;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 0;
     background: color-mix(in srgb, var(--surface) 88%, transparent);
     backdrop-filter: blur(12px) saturate(140%);
+  }
+
+  /* The gilt rail. It replaces the bar's hairline border rather than sitting under it,
+     because two lines there read as a seam. The highlight runs through the middle of the
+     page width, which is where the content column is, so the metal looks lit from the
+     same place the hearth on the summons below it comes from. */
+  .topbar::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      var(--border) 0%,
+      var(--gilt-dim) 18%,
+      var(--gilt) 42%,
+      var(--gilt-lit) 50%,
+      var(--gilt) 58%,
+      var(--gilt-dim) 82%,
+      var(--border) 100%
+    );
+    pointer-events: none;
   }
 
   /* The bar lifts off the page once there is content behind it, and sits flat when
@@ -169,9 +193,10 @@ function isCurrent(href: string): boolean {
     gap: 0.5rem;
     align-items: center;
     color: var(--text-primary);
+    font-family: var(--font-display);
     font-size: var(--fs-md);
-    font-weight: 640;
-    letter-spacing: -0.014em;
+    font-weight: 600;
+    letter-spacing: 0.03em;
     text-decoration: none;
     white-space: nowrap;
   }

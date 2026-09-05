@@ -5,6 +5,8 @@ import {
   formatSignupWindow,
   guildTimeToInstant,
   instantToGuildTime,
+  pullTier,
+  signupsClosing,
 } from './guild-time';
 
 // 20:00 in Berlin on a summer evening, sent by the service as UTC.
@@ -116,5 +118,58 @@ describe('instantToGuildTime', () => {
   it('renders nothing rather than throwing on what it cannot read', () => {
     expect(instantToGuildTime('soon', 'Europe/Prague')).toBe('');
     expect(instantToGuildTime('2026-01-15T20:00:00Z', 'Not/AZone')).toBe('');
+  });
+});
+
+describe('pullTier', () => {
+  const now = new Date('2026-08-20T12:00:00Z');
+
+  it('calls a raid that has started live', () => {
+    expect(pullTier('2026-08-20T11:59:00Z', now)).toBe('live');
+    expect(pullTier('2026-08-20T12:00:00Z', now)).toBe('live');
+  });
+
+  // The evening's own window. Anything inside it is the raid a lead is getting ready for
+  // rather than one on the calendar.
+  it('calls the next six hours imminent', () => {
+    expect(pullTier('2026-08-20T12:01:00Z', now)).toBe('imminent');
+    expect(pullTier('2026-08-20T17:59:00Z', now)).toBe('imminent');
+  });
+
+  it('calls the rest of the day soon', () => {
+    expect(pullTier('2026-08-20T18:00:00Z', now)).toBe('soon');
+    expect(pullTier('2026-08-21T11:59:00Z', now)).toBe('soon');
+  });
+
+  it('calls anything past a day distant', () => {
+    expect(pullTier('2026-08-21T12:00:00Z', now)).toBe('distant');
+    expect(pullTier('2026-09-01T20:00:00Z', now)).toBe('distant');
+  });
+
+  it('falls back to distant on a timestamp it cannot read', () => {
+    expect(pullTier('tuesday', now)).toBe('distant');
+  });
+});
+
+describe('signupsClosing', () => {
+  const now = new Date('2026-08-20T12:00:00Z');
+
+  it('is true only inside the last hour', () => {
+    expect(signupsClosing('2026-08-20T12:59:00Z', now)).toBe(true);
+    expect(signupsClosing('2026-08-20T12:01:00Z', now)).toBe(true);
+  });
+
+  it('is false once the deadline has passed', () => {
+    expect(signupsClosing('2026-08-20T12:00:00Z', now)).toBe(false);
+    expect(signupsClosing('2026-08-20T11:30:00Z', now)).toBe(false);
+  });
+
+  it('is false while there is still more than an hour', () => {
+    expect(signupsClosing('2026-08-20T13:00:00Z', now)).toBe(false);
+    expect(signupsClosing('2026-08-22T18:00:00Z', now)).toBe(false);
+  });
+
+  it('is false on a timestamp it cannot read', () => {
+    expect(signupsClosing('soon', now)).toBe(false);
   });
 });

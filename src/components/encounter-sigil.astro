@@ -107,8 +107,9 @@ const label = difficulty ? `${DIFFICULTY_LABELS[difficulty]} ${title}` : title;
       opacity var(--dur-3) var(--ease),
       transform var(--dur-3) var(--ease);
     /* On the beams' own 3.2s cycle, so the marker answers what is arriving at it
-       rather than keeping a second clock of its own. */
-    animation: sigil-charge 3.2s ease-in-out infinite;
+       rather than keeping a second clock of its own. On the overview the summons sets
+       the clock instead, from how close the pull is. */
+    animation: sigil-charge var(--sigil-pulse, 3.2s) ease-in-out infinite;
   }
 
   /* The bloom the beams are feeding. It is the one glow on this surface that is not a
@@ -119,7 +120,7 @@ const label = difficulty ? `${DIFFICULTY_LABELS[difficulty]} ${title}` : title;
     opacity: 0.22;
     filter: blur(6px);
     transform-origin: 32px 32px;
-    animation: sigil-charge 3.2s ease-in-out infinite;
+    animation: sigil-charge var(--sigil-pulse, 3.2s) ease-in-out infinite;
     transition: opacity var(--dur-3) var(--ease);
   }
 

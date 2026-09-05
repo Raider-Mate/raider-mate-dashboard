@@ -1,16 +1,19 @@
 /*
- * THESIS: a raid-night console, not a web page. The category default here is a
- *   sidebar admin template with same-size cards; this refuses both for a top bar over
- *   dense tables, and spends its one authored moment on continuity between them.
- * OWN-WORLD: cool near-black neutrals in four tonal steps, hairline borders, no panel
- *   shadows, one warm amber for action and place, saturated hue only where it encodes a
- *   role, class, difficulty, or state. 14px system type, tabular numerals everywhere.
- * STORY: a raid lead opens this before pull, finds tonight in one glance, and leaves.
- * FIRST VIEWPORT: sticky top bar with brand, three destinations, guild switcher and
- *   account; below it the page title band, then the data itself at full width.
- * FORM: product-UI canon (Linear, Geist, Raycast, Stripe, Untitled UI), executed
- *   straight at the craft level of the named bar, with View Transitions as the one
- *   place the budget is spent.
+ * THESIS: a muster order pinned to a raid-night console. The console half is unchanged
+ *   and load-bearing: dark stone, hairline borders, dense tables a raid lead scans in
+ *   the minutes before pull. What it lacked was any sign of what it is about, so three
+ *   materials arrive on top of it, each with a rule.
+ * OWN-WORLD: vellum is the summons and appears on exactly two surfaces, the overview's
+ *   next raid and the event header it morphs into. Gilt is trim, never fill and never
+ *   text. Amber is unchanged: what you can do next, and where you are. Saturated hue
+ *   still only ever encodes a role, class, difficulty, or state.
+ * STORY: a raid lead opens this before pull and tonight is already lit, warmer and
+ *   breathing faster the closer the pull is, over tables that read exactly as before.
+ * FIRST VIEWPORT: sticky top bar under a gilt rail; below it the vellum summons with
+ *   the encounter sigil on its right, then the rest of the calendar on dark.
+ * FORM: product-UI canon (Linear, Geist, Raycast, Stripe, Untitled UI) for everything a
+ *   raid lead operates, with the summons as the one authored moment and the only place
+ *   the motion budget is spent.
  *
  * Ported by hand from accessible-astro-dashboard by Mark Teekman (MIT), keeping the
  * parts that matter for a tool raid leads tab through on a raid night: a skip link,
@@ -19,15 +22,19 @@
 
 :root {
   /* Four tonal steps do the work drop shadows would do in a lit room. This is read at
-     20:00 next to a full-screen game, where a shadow reads as a smudge. */
-  --ground: #0b0d12;
-  --surface: #11141b;
-  --raised: #171b24;
-  --hover: #1d2230;
+     20:00 next to a full-screen game, where a shadow reads as a smudge.
 
-  --border-subtle: #232936;
-  --border: #2c3342;
-  --border-strong: #3a4356;
+     Warmed off the blue axis they used to sit on. The old steel read as an app chrome;
+     the same four steps a few degrees warmer read as stone, which is what the gilt trim
+     and the vellum need behind them to look like they belong to the same object. */
+  --ground: #0c0d11;
+  --surface: #13141a;
+  --raised: #1a1c23;
+  --hover: #23252e;
+
+  --border-subtle: #262832;
+  --border: #30323e;
+  --border-strong: #434654;
 
   --text-primary: #e8ebf2;
   --text-secondary: #a5adbe;
@@ -38,6 +45,14 @@
   --accent-hover: #f0b457;
   --accent-pressed: #c88c2c;
   --accent-fg: #12141a;
+
+  /* Trim, not action. Amber is lit and saturated because it is asking for a click; gilt
+     is darker and duller because it is metal sitting still. Put them side by side and
+     the difference is obvious, which is the whole reason gilt can exist without
+     breaking the One Amber Rule. */
+  --gilt: #b98c34;
+  --gilt-dim: #6b5121;
+  --gilt-lit: #e8c877;
 
   --success: #34d399;
   --warning: #fb923c;
@@ -60,6 +75,9 @@
     -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', system-ui, Roboto,
     'Helvetica Neue', Arial, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+  /* Titles only. It has no tabular numerals, and a figure that changes width between
+     rows is the one thing this surface cannot afford. */
+  --font-display: 'Cinzel', 'Trajan Pro', Georgia, 'Times New Roman', serif;
 
   --fs-xs: 0.75rem;
   --fs-sm: 0.8125rem;
@@ -81,6 +99,20 @@
   --ring: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
+/* Self-hosted because the Caddyfile's CSP is default-src 'self' with no font-src of its
+   own, and because a self-hoster has to get everything the product needs out of this
+   repository. Latin subset, variable weight, 26KB. Terms in LICENSE-OFL-Cinzel. */
+@font-face {
+  font-family: 'Cinzel';
+  font-style: normal;
+  font-weight: 400 900;
+  font-display: swap;
+  src: url('/fonts/cinzel-latin-var.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC,
+    U+2122, U+2212, U+FEFF, U+FFFD;
+}
+
 *,
 *::before,
 *::after {
@@ -91,9 +123,23 @@ html {
   background: var(--ground);
 }
 
+/* Two films over the ground, both fixed so they behave like the room rather than like
+   part of the page. The hearth is a faint warm wash off the top edge, which is where the
+   summons sits; the grain is fractal noise at an opacity you should never consciously
+   see, and which stops a 1400px expanse of near-black from looking like a void. Both are
+   background layers rather than a pseudo-element, so nothing stacks above the content
+   and no page has to know they exist. */
 body {
   margin: 0;
-  background: var(--ground);
+  background-color: var(--ground);
+  background-image:
+    radial-gradient(
+      1200px 620px at 50% -8%,
+      color-mix(in srgb, var(--gilt) 7%, transparent),
+      transparent 70%
+    ),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)' opacity='0.26'/%3E%3C/svg%3E");
+  background-attachment: fixed;
   color: var(--text-primary);
   font-family: var(--font);
   font-size: var(--fs-md);
@@ -113,11 +159,14 @@ h4 {
   text-wrap: balance;
 }
 
+/* The page title, and nothing smaller. Cinzel is inscriptional: it carries a raid name
+   at 26px and falls apart as a label at 12px, which is exactly the range it is given. */
 h1 {
+  font-family: var(--font-display);
   font-size: var(--fs-2xl);
-  font-weight: 640;
-  line-height: 1.15;
-  letter-spacing: -0.022em;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.002em;
 }
 
 h2 {
@@ -214,6 +263,9 @@ time {
 /* More space above a heading than below it, so it belongs to what it introduces. */
 .section > h2 {
   margin-bottom: 0.875rem;
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.004em;
 }
 
 @media (min-width: 60rem) {
@@ -306,10 +358,40 @@ time {
 /* ------------------------------------------------------------------------ panels */
 
 .panel {
+  position: relative;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   background: var(--surface);
   overflow: clip;
+}
+
+/* Two opposite corners, not four. A frame marked on all four reads as a picture and
+   starts competing with the table inside it; marked on two it reads as something that
+   was made rather than defaulted, which is all this is for. Hairline gilt, inset far
+   enough not to double the panel's own border. */
+.panel::before,
+.panel::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  width: 10px;
+  height: 10px;
+  border: 0 solid var(--gilt-dim);
+  pointer-events: none;
+}
+
+.panel::before {
+  top: 4px;
+  left: 4px;
+  border-width: 1px 0 0 1px;
+  border-radius: var(--radius-lg) 0 0 0;
+}
+
+.panel::after {
+  right: 4px;
+  bottom: 4px;
+  border-width: 0 1px 1px 0;
+  border-radius: 0 0 var(--radius-lg) 0;
 }
 
 .panel__head {
@@ -325,12 +407,143 @@ time {
 
 .panel__head h2,
 .panel__head h3 {
+  font-family: var(--font-display);
   font-size: var(--fs-lg);
-  letter-spacing: -0.014em;
+  font-weight: 600;
+  letter-spacing: 0.006em;
 }
 
 .panel__body {
   padding: 1.25rem;
+}
+
+/* ------------------------------------------------------------------------ vellum */
+
+/*
+ * The summons, and the only light surface in the product.
+ *
+ * It is a token scope rather than a set of overrides: everything below redefines
+ * variables the rest of this file already reads, so .badge, .button, the focus ring and
+ * the difficulty chips all arrive here correct without knowing parchment exists. Adding
+ * a component later costs nothing. Restyling one for paper would have cost it forever.
+ *
+ * Two rules keep it from becoming a skin. It appears on exactly two surfaces, the
+ * overview's next raid and the event header that morphs out of it, and it never touches
+ * a table, a chart, or a panel body. If a third surface wants it, one of the three is
+ * wrong.
+ */
+.vellum {
+  --vellum-base: #e6d7b4;
+
+  --surface: #e6d7b4;
+  --raised: #dcc99f;
+  --hover: #d3bf92;
+
+  --border-subtle: #cdb684;
+  --border: #b6995c;
+  /* 4.1:1 on the sheet, so a control outlined with it is still an outline. */
+  --border-strong: #7f6129;
+
+  /* Ink, at 9.9:1. */
+  --text-primary: #33240f;
+  /* 4.7:1, and the floor. There is no third step here: anything dimmer stops clearing
+     4.5:1 on paper, so labels and metadata share one value. */
+  --text-secondary: #6f5a33;
+  --text-tertiary: #6f5a33;
+
+  /* The primary action inverts. Amber on parchment is a stain, so what you can do next
+     becomes the darkest thing on the sheet instead of the warmest. */
+  --accent: #33240f;
+  --accent-hover: #4a3617;
+  --accent-pressed: #241906;
+  --accent-fg: #f0e4c4;
+  --ring: 0 0 0 4px color-mix(in srgb, #8a6a2f 45%, transparent);
+
+  /* The data channels, darkened to survive paper. Heroic blue and Mythic purple as they
+     are on dark ground are unreadable here, and a difficulty nobody can read is not a
+     data channel. Same meanings, same order, new values. */
+  --info: #1d5fa8;
+  --role-tank: #1d5fa8;
+  --role-healer: #1f6b43;
+  --role-mdps: #8f4415;
+  --role-rdps: #5b3391;
+  --success: #1f6b43;
+  --warning: #8f4307;
+  --danger: #a02218;
+
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xl);
+  color: var(--text-primary);
+
+  /* Five layers, and the order is the whole trick. Topmost are the two off-centre washes
+     and the grain that make the sheet read as paper rather than a swatch; they are
+     transparent, so under them sits an opaque slab of the base colour. All four clip to
+     the padding box. Only the gilt clips to the border box, which leaves it showing in
+     the 1px ring and nowhere else. Put the opaque slab anywhere but above the gilt and
+     the card becomes a sheet of metal. */
+  background-image:
+    radial-gradient(46% 58% at 92% 4%, rgb(150 116 58 / 0.42), transparent 62%),
+    radial-gradient(40% 66% at 2% 96%, rgb(138 106 54 / 0.4), transparent 64%),
+    radial-gradient(30% 40% at 62% 88%, rgb(146 114 62 / 0.24), transparent 66%),
+    radial-gradient(26% 34% at 34% 6%, rgb(158 128 76 / 0.2), transparent 68%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='v'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23v)' opacity='0.38'/%3E%3C/svg%3E"),
+    linear-gradient(var(--vellum-base), var(--vellum-base)),
+    linear-gradient(
+      152deg,
+      var(--gilt-dim),
+      var(--gilt) 28%,
+      var(--gilt-lit) 46%,
+      var(--gilt) 62%,
+      var(--gilt-dim)
+    );
+  background-color: var(--vellum-base);
+  background-origin: border-box;
+  background-clip:
+    padding-box, padding-box, padding-box, padding-box, padding-box, padding-box, border-box;
+}
+
+/* The hearth: a warm pool of light lying on the sheet, drifting across it on whatever
+   clock the card sets from how close the pull is. Its own layer because it is light and
+   the washes above are stain, and the two do not composite the same way. Both --hearth
+   and --hearth-x are inert until a card sets them, so this costs nothing where nothing
+   is happening. */
+.vellum::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: inherit;
+  background-image: radial-gradient(
+    38% 110% at var(--hearth-x, 22%) 14%,
+    rgb(255 214 138 / var(--hearth, 0)),
+    transparent 58%
+  );
+  pointer-events: none;
+}
+
+/* Content sits above the light on the paper, not under it. */
+.vellum > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* On paper the quiet button is the one that recedes, so it takes a lighter sheet rather
+   than the raised fill it no longer has. */
+.vellum .button--quiet {
+  background: color-mix(in srgb, var(--vellum-base) 70%, #ffffff);
+  border-color: var(--border);
+}
+
+.vellum .button--quiet:hover {
+  background: var(--hover);
+  border-color: var(--border-strong);
+}
+
+.vellum .badge {
+  background: color-mix(in srgb, var(--vellum-base) 62%, #ffffff);
+  border-color: var(--border);
+  color: var(--text-secondary);
 }
 
 /* ------------------------------------------------------------------------ badges */

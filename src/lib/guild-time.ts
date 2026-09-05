@@ -92,6 +92,49 @@ export function formatSignupWindow(iso: string, now: Date = new Date()): string 
   return RELATIVE.format(Math.round(delta / DAY), 'day');
 }
 
+/**
+ * How close tonight is, in the four steps a raid lead actually thinks in: still days
+ * out, later today, nearly on us, or already going. The overview card reads this to
+ * decide how alive it looks, which is the one thing on that page allowed to move.
+ *
+ * Not a countdown. A countdown ticking on a server-rendered page would be a lie the
+ * moment the page finished loading, and a raid lead does not need the seconds.
+ */
+export type PullTier = 'live' | 'imminent' | 'soon' | 'distant';
+
+export function pullTier(iso: string, now: Date = new Date()): PullTier {
+  const start = new Date(iso).getTime();
+  if (Number.isNaN(start)) {
+    return 'distant';
+  }
+
+  const delta = start - now.getTime();
+  if (delta <= 0) {
+    return 'live';
+  }
+  if (delta < 6 * HOUR) {
+    return 'imminent';
+  }
+  if (delta < DAY) {
+    return 'soon';
+  }
+  return 'distant';
+}
+
+/**
+ * Signups shut inside the hour and have not shut yet. This is the last moment anyone can
+ * still be talked into coming, so it is the one figure on the overview that pulses.
+ */
+export function signupsClosing(iso: string, now: Date = new Date()): boolean {
+  const deadline = new Date(iso).getTime();
+  if (Number.isNaN(deadline)) {
+    return false;
+  }
+
+  const delta = deadline - now.getTime();
+  return delta > 0 && delta < HOUR;
+}
+
 const LOCAL_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2})?$/;
 
 /**
