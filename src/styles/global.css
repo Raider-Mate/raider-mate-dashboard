@@ -348,6 +348,20 @@ time {
   color: var(--text-primary);
 }
 
+/* The only destructive control in the dashboard, so it reads as one. Outlined rather
+   than filled: it sits inside a disclosure the reader already opened on purpose, and a
+   solid red block there is louder than the action deserves. */
+.button--danger {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  color: var(--danger);
+}
+
+.button--danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-color: var(--danger);
+}
+
 .button[disabled],
 .button[aria-disabled='true'] {
   opacity: 0.45;

@@ -61,12 +61,22 @@ const NOTICES: Record<string, string> = {
   rejected: 'Rejected. Nothing on the sheet changed.',
   decided: 'Someone answered that one already.',
   rereading: 'Reading the report again. The numbers follow.',
+  cancelled: 'Called off. Everyone who was coming has been told.',
+  backon: 'Back on. Everyone who was coming has been told.',
+  alreadyoff: 'That raid is already off.',
+  toolate: 'That raid was due to start, so it cannot be put back on.',
+  longreason: 'That reason is too long. Keep it under 200 characters.',
 };
 const code = Astro.url.searchParams.get('notice') ?? '';
 const notice = NOTICES[code];
 // The rest are refusals and wear the danger colour. These are writes that went through,
 // a rejection included: answering a request is the queue working, not a failure.
-const noticeIsGood = code === 'saved' || code === 'approved' || code === 'rejected';
+const noticeIsGood =
+  code === 'saved' ||
+  code === 'approved' ||
+  code === 'rejected' ||
+  code === 'cancelled' ||
+  code === 'backon';
 
 let event: Event | null = null;
 let failure: string | null = null;
@@ -371,6 +381,29 @@ function templateSize(field: string): number | '' {
       <a slot="actions" class="button button--quiet" href="/events">
         All events
       </a>
+    )
+  }
+
+  {
+    /* Putting a raid back on is one press. Nothing is lost by it, and the raid lead is
+       undoing something they already confirmed. */
+    event && hasLink(event, 'uncancel') && (
+      <form slot="actions" method="post" action={`/events/${event.id}/uncancel`} data-astro-reload>
+        <button class="button button--quiet" type="submit">
+          Put it back on
+        </button>
+      </form>
+    )
+  }
+
+  {
+    /* The raid is off. Said above everything else, because the times below it are no
+       longer true. */
+    event?.cancelled_at && (
+      <p class="cancelled">
+        <strong>This raid is off.</strong>
+        {event.cancelled_reason && ` ${event.cancelled_reason}`}
+      </p>
     )
   }
 
@@ -716,6 +749,32 @@ function templateSize(field: string): number | '' {
               {event.type === 'RAID' ? 'Raid' : 'Mythic+'} for the life of the event.
             </span>
           </div>
+        </form>
+      </details>
+    )
+  }
+
+  {
+    /* Behind a disclosure, which is the confirmation step: calling a raid off tells
+       everyone who said they were coming, so it should not sit one stray click away.
+
+       This is not the delete the service also offers and no client renders. Deleting
+       takes the signups with it, and the attendance is computed from exactly those. */
+    event && hasLink(event, 'cancel') && (
+      <details class="danger">
+        <summary>Call this raid off</summary>
+        <form method="post" action={`/events/${event.id}/cancel`} data-astro-reload>
+          <p class="muted">
+            Everyone who said they were coming gets told, and the signup sheet in Discord stops
+            taking answers. The signups are kept, and you can put it back on.
+          </p>
+          <label class="field">
+            <span>Why? (optional)</span>
+            <input type="text" name="reason" maxlength="200" placeholder="Not enough healers" />
+          </label>
+          <button class="button button--danger" type="submit">
+            Call it off
+          </button>
         </form>
       </details>
     )
@@ -1502,6 +1561,65 @@ function templateSize(field: string): number | '' {
      second shape of the same event. */
   .edit {
     margin-bottom: 1.5rem;
+  }
+
+  /* Said above the times, because the times are the part that is no longer true. */
+  .cancelled {
+    margin: 0 0 1rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--danger) 34%, transparent);
+    border-left: 3px solid var(--danger);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--danger) 11%, transparent);
+    font-size: var(--fs-sm);
+  }
+
+  /* Borrows the edit disclosure's shape so the two read as the same kind of control,
+     and tints only on the way in. */
+  .danger {
+    margin-bottom: 1.5rem;
+  }
+
+  .danger summary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0.4rem 0.875rem;
+    border: 1px solid color-mix(in srgb, var(--danger) 34%, transparent);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--danger);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    list-style: none;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-1) var(--ease),
+      border-color var(--dur-1) var(--ease);
+  }
+
+  .danger summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .danger summary:hover {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    border-color: var(--danger);
+  }
+
+  .danger form {
+    max-width: 32rem;
+    margin-top: 0.75rem;
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+  }
+
+  .danger form p {
+    max-width: 60ch;
+    margin: 0 0 0.75rem;
+    font-size: var(--fs-sm);
   }
 
   .edit summary {

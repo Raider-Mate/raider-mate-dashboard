@@ -152,6 +152,17 @@ export interface Event extends Linked {
    * read as "coming" is the caller's question and the service refuses to answer it.
    */
   signup_counts?: Partial<Record<SignupStatus, number>>;
+  /**
+   * When a raid lead called the raid off. Absent while it is on.
+   *
+   * The signups are kept, so the sheet stays readable, but nothing on it can be written
+   * any more: `allowed_statuses` comes back empty and `withdraw` disappears. Render the
+   * raid as off from this field, and the controls from the links, never by comparing
+   * anything here yourself.
+   */
+  cancelled_at?: string;
+  /** Why, when the raid lead said. Optional on the way in, so often absent. */
+  cancelled_reason?: string;
 }
 
 export interface Signup extends Linked {

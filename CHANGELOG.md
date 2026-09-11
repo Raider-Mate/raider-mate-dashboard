@@ -12,6 +12,29 @@ Sections are `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-11
+
+### Added
+
+- **A raid can be called off from its own page.** The control sits behind a disclosure,
+  which is the confirmation: calling a raid off tells everyone who said they were coming,
+  so it should not be one stray click away. There is a box for why, and leaving it blank
+  is fine. Once it is off, a raid lead gets "Put it back on" in the page header, for the
+  tank who turns up after all.
+
+  This is not a delete. Deleting an event takes every signup on it, and the attendance
+  for that night with them. A cancelled raid keeps all of it and says what happened.
+
+- **Cancelled raids are marked in the list and on the calendar** rather than hidden. A
+  raid lead scanning the week needs to see that Thursday is off, not find it missing. The
+  calendar pill drops its difficulty colour and strikes the title through.
+
+### Changed
+
+- **The signup controls disappear on a cancelled raid.** Nothing new was needed for this:
+  the service stops offering the statuses and the withdraw link, and the page has always
+  rendered those from the links alone.
+
 ## [0.9.0] - 2026-09-05
 
 ### Added
